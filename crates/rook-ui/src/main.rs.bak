@@ -1,0 +1,68 @@
+//! Rook — a proxy-based NLE with AI agent interoperability.
+//!
+//! Entry point for the egui desktop application.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod app;
+mod panels;
+mod theme;
+mod widgets;
+
+use std::sync::{Arc, Mutex};
+use rook_core::canvas::Canvas;
+use rook_core::time::Rational;
+use rook_engine::Engine;
+
+fn main() -> Result<(), eframe::Error> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+        )
+        .init();
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1440.0, 900.0])
+            .with_min_inner_size([800.0, 500.0])
+            .with_title("Rook"),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Rook",
+        options,
+        Box::new(|cc| {
+            // Dark theme
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+
+            let engine = if let Some(path) = std::env::args().nth(1) {
+                let p = std::path::Path::new(&path);
+                if p.extension().map_or(false, |e| e == "rook") {
+                    Engine::open_project(p).unwrap_or_else(|e| {
+                        tracing::error!(?e, "failed to open project, creating new");
+                        Engine::new("Untitled Project", Canvas::HD_1080P, Rational::FPS_24)
+                    })
+                } else {
+                    Engine::open_project_json(p).unwrap_or_else(|e| {
+                        tracing::error!(?e, "failed to open JSON project, creating new");
+                        Engine::new("Untitled Project", Canvas::HD_1080P, Rational::FPS_24)
+                    })
+                }
+            } else {
+                Engine::new("Untitled Project", Canvas::HD_1080P, Rational::FPS_24)
+            };
+
+            let engine_arc = Arc::new(Mutex::new(engine));
+
+            let ipc_server = if std::env::args().any(|a| a == "--ipc") {
+                Some(rook_ipc::server::IpcServer::new(engine_arc.clone()))
+            } else {
+                None
+            };
+
+            Ok(Box::new(app::RookApp::new(engine_arc, ipc_server)))
+        }),
+    )
+}

@@ -1,0 +1,12 @@
+[package]
+name = "rook-timeline"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "Graph-based timeline model — vendored from Gausian (Apache 2.0)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["serde", "v4"] }

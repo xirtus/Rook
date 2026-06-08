@@ -1,0 +1,21 @@
+[package]
+name = "rook-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+regex.workspace = true
+rook-time.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "timeline"
+harness = false

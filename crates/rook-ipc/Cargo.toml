@@ -1,0 +1,23 @@
+[package]
+name = "rook-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Agent IPC protocol for Rook — JSON-RPC + MCP + ACP transports"
+
+[dependencies]
+rook-core.workspace = true
+rook-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+rmcp.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+base64.workspace = true
+bytes.workspace = true
+crossbeam-channel.workspace = true

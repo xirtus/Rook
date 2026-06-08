@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0d0d1a"/>
+    </linearGradient>
+    <linearGradient id="birdGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0f0f5"/>
+      <stop offset="50%" stop-color="#c8c8d8"/>
+      <stop offset="100%" stop-color="#f0f0f5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded background -->
+  <rect x="80" y="80" width="864" height="864" rx="180" ry="180" fill="url(#bg)"/>
+
+  <!-- Rook Bird Silhouette -->
+  <g transform="translate(512,500)">
+    <!-- Body -->
+    <ellipse cx="0" cy="80" rx="140" ry="150" fill="url(#birdGrad)" opacity="0.95"/>
+
+    <!-- Neck -->
+    <ellipse cx="10" cy="-30" rx="55" ry="80" fill="url(#birdGrad)" opacity="0.95"/>
+
+    <!-- Head -->
+    <circle cx="15" cy="-120" r="65" fill="url(#birdGrad)" opacity="0.95"/>
+
+    <!-- Crest/Crown -->
+    <ellipse cx="-10" cy="-175" rx="35" ry="40" fill="url(#birdGrad)" opacity="0.9"/>
+    <circle cx="-35" cy="-195" r="14" fill="url(#birdGrad)" opacity="0.85"/>
+    <circle cx="-10" cy="-200" r="12" fill="url(#birdGrad)" opacity="0.85"/>
+    <circle cx="15" cy="-195" r="12" fill="url(#birdGrad)" opacity="0.8"/>
+
+    <!-- Beak -->
+    <polygon points="70,-130 200,-145 70,-105" fill="url(#birdGrad)" opacity="0.9"/>
+
+    <!-- Eye -->
+    <circle cx="30" cy="-125" r="12" fill="#1a1a2e"/>
+    <circle cx="27" cy="-128" r="3.5" fill="#f0f0f5"/>
+
+    <!-- Wing (folded) -->
+    <ellipse cx="-80" cy="20" rx="90" ry="60" fill="url(#birdGrad)" opacity="0.9"/>
+    <ellipse cx="-140" cy="-15" rx="50" ry="35" fill="url(#birdGrad)" opacity="0.85"/>
+
+    <!-- Tail feathers -->
+    <ellipse cx="-130" cy="160" rx="70" ry="35" fill="url(#birdGrad)" opacity="0.85"/>
+
+    <!-- Chest -->
+    <circle cx="50" cy="20" r="50" fill="url(#birdGrad)" opacity="0.85"/>
+
+    <!-- Legs -->
+    <rect x="-20" y="180" width="8" height="70" rx="3" fill="url(#birdGrad)" opacity="0.85"/>
+    <rect x="25" y="180" width="8" height="70" rx="3" fill="url(#birdGrad)" opacity="0.85"/>
+
+    <!-- Feet -->
+    <rect x="-30" y="245" width="28" height="6" rx="2" fill="url(#birdGrad)" opacity="0.8"/>
+    <rect x="15" y="245" width="28" height="6" rx="2" fill="url(#birdGrad)" opacity="0.8"/>
+  </g>
+</svg>

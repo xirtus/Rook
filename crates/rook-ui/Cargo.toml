@@ -1,0 +1,30 @@
+[package]
+name = "rook-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rook desktop editor — egui UI shell"
+
+[dependencies]
+rook-core.workspace = true
+rook-engine = { workspace = true, features = ["native-decode"] }
+rook-plugin-host = { workspace = true, features = ["full"] }
+rook-ipc.workspace = true
+rook-renderer.workspace = true
+rook-time.workspace = true
+rook-decoder-native.workspace = true
+eframe.workspace = true
+egui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+image.workspace = true
+dirs.workspace = true
+ffmpeg-next.workspace = true
+parking_lot.workspace = true
+rfd = { version = "0.15", features = ["async-std"] }
+pollster = "0.3"
+cpal = "0.15"
+ringbuf = "0.4"

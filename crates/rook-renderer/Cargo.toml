@@ -1,0 +1,21 @@
+[package]
+name = "rook-renderer"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "wgpu renderer with WGSL shaders — vendored from Gausian (Apache 2.0)"
+
+[dependencies]
+wgpu = "22"
+bytemuck = { version = "1", features = ["derive"] }
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = "0.25"
+pollster = "0.4"
+tracing = "0.1"
+
+[features]
+default = []
+unsafe-interop = []

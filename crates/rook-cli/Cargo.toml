@@ -1,0 +1,19 @@
+[package]
+name = "rook-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rook CLI — headless editing, batch export, agent host"
+
+[dependencies]
+rook-core.workspace = true
+rook-engine.workspace = true
+rook-ipc.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+image.workspace = true

@@ -1,0 +1,36 @@
+[package]
+name = "rook-plugin-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plugin host for Rook — WASM sandbox (wasmtime) and OFX loader (libloading)"
+
+[features]
+default = []
+# Enable WASM plugin execution via wasmtime
+wasm = ["dep:wasmtime"]
+# Enable OFX plugin loading via libloading
+ofx = ["dep:libloading"]
+# Both WASM + OFX
+full = ["wasm", "ofx"]
+
+[dependencies]
+rook-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+dirs.workspace = true
+
+[dependencies.wasmtime]
+version = "26"
+optional = true
+default-features = false
+features = ["cranelift", "runtime"]
+
+[dependencies.libloading]
+version = "0.8"
+optional = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

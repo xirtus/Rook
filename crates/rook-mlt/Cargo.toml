@@ -1,0 +1,16 @@
+[package]
+name = "rook-mlt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Safe Rust bindings for MLT (Media Lovin' Toolkit)"
+
+[features]
+default = []
+# Link against system MLT (requires mlt installed: brew install mlt)
+system-mlt = ["mlt-sys"]
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+mlt-sys = { path = "../mlt-sys", optional = true }

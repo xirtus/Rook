@@ -1,0 +1,17 @@
+[package]
+name = "rook-jobs"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "Job queue types — vendored from Gausian (Apache 2.0)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+rook-media-io.workspace = true
+rook-project-db.workspace = true

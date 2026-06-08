@@ -1,0 +1,52 @@
+[package]
+name = "rook-decoder-native"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "HW-accelerated decode (VideoToolbox + GStreamer) — vendored from Gausian (Apache 2.0)"
+
+[features]
+gstreamer = [
+  "dep:gstreamer",
+  "dep:gstreamer-video",
+  "dep:gstreamer-app",
+  "dep:gstreamer-pbutils",
+]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+core-video = "0.2"
+core-media = "0.5"
+av-foundation = "0.5"
+objc = "0.2"
+objc-foundation = "0.1"
+objc_id = "0.1"
+io-surface = "0.15"
+
+[dependencies]
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+wgpu = "22.1"
+tracing-subscriber = "0.3"
+
+[build-dependencies]
+cc = "1.0"
+
+[dependencies.gstreamer]
+version = "0.22"
+optional = true
+
+[dependencies.gstreamer-video]
+version = "0.22"
+optional = true
+
+[dependencies.gstreamer-app]
+version = "0.22"
+optional = true
+
+[dependencies.gstreamer-pbutils]
+version = "0.22"
+optional = true

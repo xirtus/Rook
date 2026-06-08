@@ -1,0 +1,114 @@
+[workspace]
+resolver = "2"
+members = [
+    # ── Rook native ──
+    "crates/mlt-sys",
+    "crates/rook-mlt",
+    "crates/rook-core",
+    "crates/rook-engine",
+    "crates/rook-decode",
+    "crates/rook-ipc",
+    "crates/rook-ui",
+    "crates/rook-cli",
+    "crates/rook-plugin-host",
+
+    # ── Adaptations ──
+    "crates/rook-time",
+
+    # ── Vendored from Gausian (Apache 2.0) ──
+    "crates/rook-timeline",
+    "crates/rook-exporters",
+    "crates/rook-renderer",
+    "crates/rook-decoder-native",
+    "crates/rook-project-db",
+    "crates/rook-media-io",
+    "crates/rook-jobs",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.85"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/rook/rook"
+
+# ── Workspace dependencies ──────────────────────────────────────────────
+[workspace.dependencies]
+# ── Serialization ──
+serde           = { version = "1", features = ["derive"] }
+serde_json      = "1"
+
+# ── Identifiers ──
+uuid            = { version = "1", features = ["v4", "v7", "serde"] }
+
+# ── Errors ──
+thiserror       = "2"
+anyhow          = "1"
+
+# ── Observability ──
+tracing         = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+log             = "0.4"
+
+# ── Async ──
+tokio           = { version = "1", features = ["full"] }
+futures         = "0.3"
+
+# ── Media ──
+ffmpeg-next     = "8.1"
+
+# ── Hashing ──
+rustc-hash      = "2"
+sha2            = "0.11"
+
+# ── UI ──
+eframe          = "0.31"
+egui            = "0.31"
+
+# ── CLI ──
+clap            = { version = "4", features = ["derive"] }
+
+# ── IPC ──
+axum            = { version = "0.8", features = ["ws"] }
+tower           = "0.5"
+tower-http      = { version = "0.6", features = ["trace", "cors"] }
+rmcp            = { version = "1.7", features = ["server", "transport-io"] }
+
+# ── Misc ──
+parking_lot     = "0.12"
+image           = "0.25"
+base64          = "0.22"
+regex           = "1"
+chrono          = { version = "0.4", features = ["serde", "clock"] }
+bytes           = "1"
+crossbeam-channel = "0.5"
+rusqlite        = { version = "0.31", features = ["bundled"] }
+dirs            = "5"
+criterion       = { version = "0.5", features = ["html_reports"] }
+
+# ── Internal (Rook) ──
+rook-core           = { path = "crates/rook-core" }
+rook-engine         = { path = "crates/rook-engine" }
+rook-plugin-host    = { path = "crates/rook-plugin-host" }
+rook-decode         = { path = "crates/rook-decode" }
+rook-mlt            = { path = "crates/rook-mlt" }
+mlt-sys             = { path = "crates/mlt-sys" }
+rook-ipc            = { path = "crates/rook-ipc" }
+rook-time           = { path = "crates/rook-time" }
+
+# ── Vendored (Gausian, Apache 2.0) ──
+rook-timeline       = { path = "crates/rook-timeline" }
+rook-exporters      = { path = "crates/rook-exporters" }
+rook-renderer       = { path = "crates/rook-renderer" }
+rook-decoder-native = { path = "crates/rook-decoder-native" }
+rook-project-db     = { path = "crates/rook-project-db" }
+rook-media-io       = { path = "crates/rook-media-io" }
+rook-jobs           = { path = "crates/rook-jobs" }
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level     = 1
