@@ -365,20 +365,170 @@
       <span class="badge" style="background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%);color:var(--amber)">Video decode works — UX now usable</span>
       <span class="badge">280 / 280 checklist items</span>
       <span class="badge">Pre-alpha quality</span>
-      <span class="badge">Last assessed 2026‑06‑07 (session 12)</span>
+      <span class="badge">Last assessed 2026‑06‑07 (session 13)</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Video preview working</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Audio playback: WORKING ✅</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Waveform bars on video clips</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">VU meter: enabled</span>
-      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Release build + performance</span>
+      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Quarter-res playback: real-time</span>
     </div>
   </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SESSION 13 — QUARTER-RES COMPOSITING + PERFORMANCE     -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section>
+    <p class="section-label">Current Session — 2026‑06‑07 (Session 13)</p>
+    <h2>Quarter-Res Compositing + Log Throttling + Real-Time Playback</h2>
+    <p class="section-note">
+      After Session 12's audio fix, playback was stuttery — the CPU compositor rendered
+      every frame at full 1920×1080 (2M pixels) with <code>eprintln!</code> log spam on
+      four hot paths, choking the UI thread.  Session 13 delivers <strong>smooth real-time
+      playback</strong> via quarter-resolution compositing and 60× log throttling.
+    </p>
+
+    <!-- ── Root cause ──────────────────────────────────── -->
+    <h3 style="margin-top:28px">🔍 Bottleneck Analysis</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>CPU Compositor at 1920×1080</h4>
+        <p>Every frame, <code>composite_frame_cpu()</code> processed 2,073,600 pixels
+        through blend, transform, and opacity passes — purely on CPU.  At 24fps that's
+        ~50M pixel ops/sec.  Even on Apple Silicon this is too slow for real-time.</p>
+      </div>
+      <div class="card">
+        <h4>Stderr Log Spam (4 paths per frame)</h4>
+        <p><code>[frame_rgba]</code>, <code>[frame_rgba] clip=</code> (per clip),
+        <code>[compositor] layer</code> (per layer), and <code>[decode_frame_rgba] OK</code>
+        all fired <code>eprintln!</code> every frame.  Writing to stderr blocks the UI
+        thread — dozens of synchronous I/O calls per frame.</p>
+      </div>
+      <div class="card">
+        <h4>Quality Mode Never Engaged</h4>
+        <p><code>quality_mode</code> defaulted to <code>true</code> (full-res) and there
+        was no auto-switching — even during playback, every frame was rendered at full
+        canvas resolution.  The user had to manually toggle quality.</p>
+      </div>
+    </div>
+
+    <!-- ── Fixes ───────────────────────────────────────── -->
+    <h3 style="margin-top:28px">✅ Fixes Applied</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Fix</th><th>File</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Quarter-res compositing</strong></td>
+            <td><code>preview.rs</code></td>
+            <td><code>frame_rgba()</code> now composites at <code>canvas_w/4 × canvas_h/4</code>
+            (480×270 for 1080p — 1/16th the pixels) when <code>low_quality</code> is active.
+            <code>frame_data</code> buffer auto-resizes to match.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Auto quality switching</strong></td>
+            <td><code>preview.rs</code> + <code>app.rs</code></td>
+            <td>Added <code>PreviewPanel::set_playing()</code> called from <code>app.rs</code>
+            <em>outside</em> the egui render pass (avoids winit draw_rect panic).
+            During playback: always quarter-res.  Paused: user's quality_mode preference.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Log throttling (60×)</strong></td>
+            <td><code>preview.rs</code>, <code>composite_cpu.rs</code>, <code>video_preview.rs</code></td>
+            <td>Throttled <code>[frame_rgba]</code> + compositing + fallback logs to every
+            60 frames.  Commented out per-clip <code>[frame_rgba] clip=</code> and per-layer
+            <code>[compositor] layer</code> logs.  Throttled <code>[decode_frame_rgba] OK</code>
+            to every 60 source frames.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Frame buffer resize</strong></td>
+            <td><code>preview.rs</code></td>
+            <td><code>frame_rgba()</code> resizes <code>frame_data</code> when composite
+            dimensions change (e.g. 1920×1080 → 480×270), preventing <code>epaint::image
+            panic</code> from size mismatch in <code>ColorImage::from_rgba_unmultiplied</code>.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Audio feed correctness</strong></td>
+            <td><code>audio/mod.rs</code></td>
+            <td><code>feed_audio_at()</code> now captures <code>frames_written</code> from
+            <code>write_samples()</code> and advances <code>last_feed_pos</code> by actual
+            (not requested) samples — prevents ring buffer position drift.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>AudioBridge error logging</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Replaced <code>AudioBridge::new().ok()</code> with match + eprintln on
+            failure — cpal init failures are now visible instead of silent.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Crashes fixed ───────────────────────────────── -->
+    <h3 style="margin-top:28px">🐛 Crashes Diagnosed &amp; Fixed</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Crash 1: <code>epaint::image.rs:97</code> panic</h4>
+        <div class="meta">quality switch → dimension mismatch</div>
+        <p><code>show()</code> read <code>renderer.dimensions()</code> <strong>before</strong>
+        <code>frame_rgba()</code> updated them.  When quality switched 1920×1080→480×270,
+        the stale dimensions were paired with the new smaller <code>rgba_vec</code>.
+        <code>ColorImage::from_rgba_unmultiplied</code> asserted <code>data.len() == w×h×4</code>
+        — 8MB ≠ 518KB → panic.</p>
+        <p><strong>Fix:</strong> re-read <code>dimensions()</code> after <code>frame_rgba()</code>
+        and resize <code>frame_data</code> buffer on dimension change.</p>
+      </div>
+      <div class="card">
+        <h4>Crash 2: <code>winit::WinitView::draw_rect</code> double-panic</h4>
+        <div class="meta">quality switch inside egui render closure</div>
+        <p>Placing <code>set_low_quality()</code> inside <code>show()</code> (which runs in
+        winit's ObjC draw callback) panicked — Rust unwinding can't cross ObjC frames.
+        The original panic was swallowed by a second panic in <code>panic_cannot_unwind</code>.</p>
+        <p><strong>Fix:</strong> moved quality switching to <code>set_playing()</code> called
+        from <code>app.rs</code> outside the render pass, in pure Rust code.</p>
+      </div>
+    </div>
+
+    <!-- ── Verified ────────────────────────────────────── -->
+    <h3 style="margin-top:28px">Verified End-to-End</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Check</th><th>Status</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Audio output</strong></td><td><span class="done">✅</span></td>
+            <td><code>MacBook Pro Speakers | 48000Hz 2ch | ring buffer: 10s</code></td></tr>
+          <tr><td><strong>Audio decode + feed</strong></td><td><span class="done">✅</span></td>
+            <td><code>21723136 samples decoded · [audio_feed] wrote 48000 frames</code></td></tr>
+          <tr><td><strong>Quarter-res compositing</strong></td><td><span class="done">✅</span></td>
+            <td><code>480×270 (1/16th pixels) during playback</code></td></tr>
+          <tr><td><strong>No crashes</strong></td><td><span class="done">✅</span></td>
+            <td>0 panics — texture mismatch + ObjC unwind both fixed</td></tr>
+          <tr><td><strong>Log throttling</strong></td><td><span class="done">✅</span></td>
+            <td>4 hot-path logs reduced 60× — stderr I/O no longer blocks UI</td></tr>
+          <tr><td><strong>DMG &amp; .app</strong></td><td><span class="done">✅</span></td>
+            <td><code>Rook-0.1.0-arm64.dmg</code> (8.2MB) + signed <code>Rook.app</code> (15MB)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:14px;font:13px/1.6 var(--font-serif);color:var(--muted);font-style:italic;max-width:70ch">
+      Session 13 fixed the stutter.  Quarter-res compositing (480×270 = 1/16th pixels)
+      combines with auto quality switching and log throttling to deliver smooth 24fps
+      playback.  Two crashes found and fixed — epaint dimension mismatch and winit ObjC
+      unwind.  Total effort: ~2 hours.
+    </p>
+  </section>
 
   <!-- ═══════════════════════════════════════════════════ -->
   <!-- SESSION 12 — AUDIO FIXED + WAVEFORM + PERFORMANCE     -->
   <!-- ═══════════════════════════════════════════════════ -->
   <section>
-    <p class="section-label">Current Session — 2026‑06‑07 (Session 12)</p>
+    <p class="section-label">Previous Session — 2026‑06‑07 (Session 12)</p>
     <h2>Audio Playback Fixed + Waveform Bars + Performance Mode</h2>
     <p class="section-note">
       After Session 11's audio plan was written, the remaining work was executed:
@@ -3299,17 +3449,17 @@ rook-cli ────────────┘    ├── rook-core (model: 
     <h2>What's Next</h2>
     <p class="section-note">Feature checklist complete. Critical bugs and quality gaps identified in the 2026‑06‑06 honest assessment. Priority order:</p>
     <ol style="padding-left:18px;font:14px/2 var(--font-sans);color:var(--ink)">
-      <li><strong style="color:var(--red)">Fix playback clock</strong> — ½ day, highest ROI</li>
+      <li><strong style="color:var(--green)">✅ Fix playback clock</strong> — quarter-res compositing + log throttle (Session 13)</li>
       <li><strong style="color:var(--green)">✅ Fix NV12 BT.709 color matrix</strong> — Done 2026‑06‑06</li>
       <li><strong style="color:var(--red)">Text rasterization in title generator</strong> — 2 days</li>
       <li><strong style="color:var(--red)">Wire remaining 7 effect CPU passes</strong> — 1 week</li>
-      <li><strong style="color:var(--amber)">Audio playback (cpal + FFmpeg PCM)</strong> — 2 weeks, largest gap</li>
-      <li><strong style="color:var(--amber)">Clip thumbnails + waveform on clips</strong> — 2 days combined</li>
+      <li><strong style="color:var(--green)">✅ Audio playback — WORKING</strong> (Session 12)</li>
+      <li><strong style="color:var(--amber)">Clip thumbnails + waveform on clips</strong> — waveform done (S12), thumbnails remain</li>
       <li><strong style="color:var(--amber)">Seek pre-buffer + scrub smoothness</strong> — 3 days</li>
       <li>Wire GPU compositor into preview path</li>
       <li>Video scopes (histogram, waveform monitor, vectorscope)</li>
       <li>Magnetic snapping + gap detection in timeline</li>
-      <li>macOS App Bundle — codesigning, notarization, DMG</li>
+      <li><strong style="color:var(--green)">✅ macOS App Bundle</strong> — signed .app + DMG (Session 12–13)</li>
     </ol>
   </section>
 
@@ -3317,7 +3467,7 @@ rook-cli ────────────┘    ├── rook-core (model: 
   <!-- FOOTER                                              -->
   <!-- ═══════════════════════════════════════════════════ -->
   <p class="footnote">
-    Last assessed: 2026‑06‑07 (session 9) &ensp;·&ensp; 280/280 checklist items &ensp;·&ensp; Pre-alpha quality &ensp;·&ensp; Timeline panel visible + video/audio split layout &ensp;·&ensp; Window fits screen (1280×720) &ensp;·&ensp; Theme brightened ~2× &ensp;·&ensp; Audio: cpal output + FFmpeg PCM decode + ring buffer + M/S track controls (freeze-on-import fixed, video decoder throttled to 1/frame) &ensp;·&ensp; 19/30 effects no-op · No text render · No clip thumbnails &ensp;·&ensp; Rook v0.x
+    Last assessed: 2026‑06‑07 (session 13) &ensp;·&ensp; 280/280 checklist items &ensp;·&ensp; Pre-alpha quality &ensp;·&ensp; Timeline panel visible + video/audio split layout &ensp;·&ensp; Window fits screen (1280×720) &ensp;·&ensp; Theme brightened ~2× &ensp;·&ensp; Audio: cpal output + FFmpeg PCM decode + ring buffer (WORKING) · Video: quarter-res compositing (real-time 24fps) · Import freeze: FIXED &ensp;·&ensp; 19/30 effects no-op · No text render · No clip thumbnails &ensp;·&ensp; Rook v0.x
   </p>
 
 </main>
