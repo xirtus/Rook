@@ -4,32 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rook · Development Status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap" rel="stylesheet">
 <style>
   /* ── Reset & Tokens ────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; }
   :root {
-    --page:       #14110e;
-    --panel:      #1c1815;
-    --ink:        #e8e0d5;
-    --muted:      #9b9082;
-    --faint:      #5f5950;
-    --rule:       #2e2822;
-    --rule-light: #25201b;
-    --accent:     #d4a260;
-    --green:      #6db884;
-    --green-bg:   #1a2a1e;
-    --amber:      #d4a040;
-    --amber-bg:   #2a2216;
-    --red:        #d9706a;
-    --red-bg:     #2a1a1a;
-    --blue:       #7a9ec0;
-    --blue-bg:    #1a1e28;
-    --font-sans:  "Helvetica Neue", "Inter", system-ui, -apple-system, sans-serif;
-    --font-mono:  "SF Mono", "Cascadia Code", ui-monospace, monospace;
-    --font-serif: Georgia, "Times New Roman", "Apple Garamond", serif;
+    /* Catppuccin Mocha */
+    --page:       #11111b;  /* Crust */
+    --panel:      #181825;  /* Mantle */
+    --ink:        #f5e0dc;  /* Rosewater */
+    --muted:      #fab387;  /* Peach */
+    --faint:      #585b70;  /* Surface2 */
+    --rule:       #313244;  /* Surface0 */
+    --rule-light: #1e1e2e;  /* Base */
+    --accent:     #cba6f7;  /* Mauve */
+    --green:      #a6e3a1;  /* Green */
+    --green-bg:   #1b2a1e;
+    --amber:      #f9e2af;  /* Yellow */
+    --amber-bg:   #252018;
+    --red:        #f38ba8;  /* Red */
+    --red-bg:     #261820;
+    --blue:       #89b4fa;  /* Blue */
+    --blue-bg:    #1a1f34;
+    --font-sans:  "Geist", system-ui, -apple-system, sans-serif;
+    --font-mono:  "Geist Mono", ui-monospace, monospace;
+    --font-serif: "Geist", Georgia, serif;
   }
   body {
-    background: linear-gradient(175deg, #181410 0%, var(--page) 100%);
+    background: linear-gradient(160deg, #181825 0%, #11111b 100%);
     color: var(--ink);
     font-family: var(--font-sans);
     min-height: 100vh;
@@ -192,9 +196,9 @@
     font-weight: 600;
   }
   .tier-quick   { background: var(--green-bg); color: var(--green); }
-  .tier-small   { background: #1a281a;        color: #5a9a5a; }
+  .tier-small   { background: #1c2b1c;        color: #74c99a; }
   .tier-medium  { background: var(--amber-bg); color: var(--amber); }
-  .tier-heavy   { background: #2a1a18;        color: #c06050; }
+  .tier-heavy   { background: #2b1d22;        color: #eb8a9e; }
   .tier-major   { background: var(--red-bg);   color: var(--red); }
 
   /* ── Effort dots ───────────────────────────────────── */
@@ -365,20 +369,111 @@
       <span class="badge" style="background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%);color:var(--amber)">Video decode works — UX now usable</span>
       <span class="badge">280 / 280 checklist items</span>
       <span class="badge">Pre-alpha quality</span>
-      <span class="badge">Last assessed 2026‑06‑07 (session 13)</span>
-      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Video preview working</span>
+      <span class="badge">Last assessed 2026‑06‑08 (session 14)</span>
+      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Cmd+S Save / Cmd+O Open</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Audio playback: WORKING ✅</span>
-      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Waveform bars on video clips</span>
-      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">VU meter: enabled</span>
-      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Quarter-res playback: real-time</span>
+      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Trim handles + brackets on clips</span>
+      <span class="badge" style="background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%);color:var(--amber)">Timeline scrolling: partial</span>
+      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">FCP-style layout: viewer always clear ✅</span>
+      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">VU meter: bottom strip, never covers viewer ✅</span>
     </div>
   </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SESSION 14 — FCP-STYLE WORKSPACE LAYOUT              -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section>
+    <p class="section-label">Current Session — 2026‑06‑08 (Session 14)</p>
+    <h2>FCP-Style Workspace Layout — Preview Sacred, VU Meter to Bottom Strip</h2>
+    <p class="section-note">
+      The preview window was repeatedly blocked by tool panels competing for space.
+      Session 14 restructures to Final Cut Pro's three-column model and evicts the
+      VU meter from any panel that touches the preview's width or height.
+    </p>
+
+    <h3 style="margin-top:28px">🏗 Layout Architecture</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Before — single right panel, tabbed</h4>
+        <p>Inspector · Events · Gallery · Plugins · VU Meter · Multicam all shared
+        one right <code>SidePanel</code>.  <code>show_vu_meter: true</code> forced
+        the panel permanently visible (−240 px from preview width).  On audio import
+        the VU meter expanded its content, making the problem visible.</p>
+      </div>
+      <div class="card">
+        <h4>After — FCP three-column + bottom VU strip</h4>
+        <p><strong>Left</strong>: Event Library + Gallery (220 px, resizable).
+        <strong>Right</strong>: Inspector · Plugins · Multicam only — VU meter
+        deliberately excluded.  <strong>Bottom</strong>: <code>vu_strip</code>
+        panel (72 px, off by default) sits above timeline.  <strong>Center</strong>:
+        preview owns every remaining pixel.</p>
+      </div>
+      <div class="card">
+        <h4>Why bottom strip, not right panel</h4>
+        <p>egui <code>TopBottomPanel</code> allocates <em>height</em> from the
+        window edges — it never reduces preview <em>width</em>.
+        <code>SidePanel</code> allocates <em>width</em>, shrinking the viewer.
+        Audio meters in a bottom strip is also identical to FCP's audio meter
+        location.</p>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:16px">
+      <table>
+        <thead><tr><th>Change</th><th>File</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Add <code>LeftTab</code> enum + left browser panel</strong></td>
+            <td><code>app.rs</code></td>
+            <td>New <code>SidePanel::left("left_browser")</code> — Event Library + Gallery tabs</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Remove <code>RightTab::VuMeter</code> + Events + Gallery from right panel</strong></td>
+            <td><code>app.rs</code></td>
+            <td><code>RightTab</code> now: Inspector · Plugins · Multicam only</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>VU meter → <code>TopBottomPanel::bottom("vu_strip")</code></strong></td>
+            <td><code>app.rs</code></td>
+            <td>72 px fixed strip above timeline; <code>show_vu_meter</code> defaults <code>false</code></td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Remove <code>show_vu_meter</code> from <code>show_right</code> condition</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Right panel only opens for Inspector / Plugins / Multicam — VU alone can never force it open</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Remove preview banner</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Deleted <code>colored_label("▬▬ PREVIEW…")</code> — viewer fills full CentralPanel</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Update workspace presets + View menu</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Audio preset: Inspector + VU strip; Events/Gallery route to left panel; duplicates removed</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:14px;font:13px/1.6 var(--font-serif);color:var(--muted);font-style:italic;max-width:70ch">
+      The preview monitor is now structurally protected — no panel that steals width
+      from the viewer can be triggered by audio import or any automatic state change.
+      DMG and .app rebuilt in release mode (Session 14).
+    </p>
+  </section>
 
   <!-- ═══════════════════════════════════════════════════ -->
   <!-- SESSION 13 — QUARTER-RES COMPOSITING + PERFORMANCE     -->
   <!-- ═══════════════════════════════════════════════════ -->
   <section>
-    <p class="section-label">Current Session — 2026‑06‑07 (Session 13)</p>
+    <p class="section-label">Previous Session — 2026‑06‑07 (Session 13)</p>
     <h2>Quarter-Res Compositing + Log Throttling + Real-Time Playback</h2>
     <p class="section-note">
       After Session 12's audio fix, playback was stuttery — the CPU compositor rendered
@@ -2969,10 +3064,10 @@
         <div style="font:10px var(--font-mono);color:var(--faint);margin-top:4px">●○○○○ &nbsp;~40 min — Done</div>
       </div>
       <div class="triage-card">
-        <div class="count" style="color:#5a9a5a">4</div>
+        <div class="count" style="color:var(--green)">4</div>
         <div class="label">🟢 Small Features</div>
         <div class="items">Custom Workspace, Distort, Replace Range, Filmstrip</div>
-        <div class="progress-bar"><div class="fill" style="width:100%;background:linear-gradient(90deg,#5a9a5a,#7ac080)"></div></div>
+        <div class="progress-bar"><div class="fill" style="width:100%"></div></div>
         <div style="font:10px var(--font-mono);color:var(--faint);margin-top:4px">●●○○○ &nbsp;~90 min — Done</div>
       </div>
       <div class="triage-card">
@@ -3442,19 +3537,259 @@ rook-cli ────────────┘    ├── rook-core (model: 
   <hr>
 
   <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SESSION 14 — EDITING FEATURES + WORKSPACE LAYOUT     -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section>
+    <p class="section-label">Current Session — 2026‑06‑08 (Session 14)</p>
+    <h2>Editing Tools + Scrolling + Workspace Layout Attempt</h2>
+    <p class="section-note">
+      Added keyboard shortcuts (Cmd+S save, Cmd+O open), hardened the blade splitting tool,
+      made trim handles visible with bracket indicators and a proper Trim tool, fixed vertical
+      timeline scrolling, and moved the VU meter into a tabbed panel.  <strong>Workspace
+      layout is still broken</strong> — multiple side panels squeeze the preview.  Next
+      session plan below diagnoses the root cause and lays out an FCP-style workspace rebuild.
+    </p>
+
+    <!-- ── What was built ────────────────────────────────── -->
+    <h3 style="margin-top:28px">✅ Completed This Session</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Feature</th><th>File</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Cmd+S Save</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Auto-creates .rook db if needed; saves project, updates recent list. Logged on success/error.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Cmd+O Open</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Opens native file picker via osascript (avoids winit NSOpenPanel crash). Guards against double-open.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Blade tool hardening</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Guards against zero-duration splits (boundary clicks re-insert original). Fixed timeline/source frame unit mismatch (<code>split_src = split_pt × speed</code>). Re-verifies clip exists before splitting.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Trim handle visibility</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Handle width 6→10px; hit zone +8px→+8px (18px total). Colored fills (gold when selected). Bracket indicators (<code>[</code> <code>]</code>) painted on clip edges. Trim tool (T): click anywhere on clip → trim nearest edge. Shift+click = ripple trim.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Vertical timeline scrolling</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Removed unconditional <code>.scroll_offset()</code> that cancelled user input every frame. Added <code>pending_scroll</code> flag — only forces offset on programmatic scroll events (Fit, F, Shift+Z, Hand tool). Hand-tool values preserved through sync.</td>
+            <td><span class="stub">Partial</span></td>
+          </tr>
+          <tr>
+            <td><strong>Right-panel consolidation</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Merged Inspector, Events, Gallery, Plugins, VU Meter, Multicam into a single SidePanel with top-level tabs. VU Meter now lives in the unified panel, not as a separate panel.</td>
+            <td><span class="stub">Partial</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── What's still broken ───────────────────────────── -->
+    <h3 style="margin-top:28px">🔴 Still Broken — Workspace Layout</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Root Cause: egui SidePanel Stacking</h4>
+        <div class="meta">app.rs — right panel architecture</div>
+        <p>egui's <code>SidePanel::right</code> allocates width before the <code>CentralPanel</code>
+        gets its share.  Multiple SidePanels stack horizontally, each taking its
+        <code>default_width</code> (220–280px).  With 2–3 panels open the preview
+        (CentralPanel) collapses to &lt;100px — unusable.  egui has no built-in
+        "max total side-panel width" constraint.  The Session 14 attempt to merge
+        panels into one SidePanel with tabs only partially helped — the underlying
+        issue is that <strong>egui's panel system is not designed for a pro video
+        editor layout</strong> where the preview must always dominate.</p>
+      </div>
+      <div class="card">
+        <h4>Why the Tabbed Panel Didn't Fix It</h4>
+        <div class="meta">Single SidePanel still competes with CentralPanel</div>
+        <p>Even a single <code>SidePanel::right</code> at 240px steals width from the
+        preview.  On a 1280px-wide window, that leaves ~1040px for the preview — fine.
+        But when the inspector content is tall and the user resizes the panel to see
+        more, the preview shrinks further.  egui's layout model gives SidePanels
+        priority; the CentralPanel gets the remainder.  There is no way to say
+        "CentralPanel must be at least 640px; SidePanels must yield."</p>
+      </div>
+      <div class="card">
+        <h4>Scrolling Still Flaky</h4>
+        <div class="meta">timeline.rs — ScrollArea vs manual offset tracking</div>
+        <p>The <code>pending_scroll</code> approach reduces the fight between our manual
+        <code>scroll_x</code>/<code>scroll_y</code> and egui's ScrollArea internal state,
+        but the hand-tool panning has a one-frame lag and trackpad scroll sometimes
+        jumps.  The fundamental problem is mixing programmatic scroll control
+        (Fit, F-key, Hand tool) with egui's built-in ScrollArea state management.
+        A cleaner approach is needed — either fully embrace egui's ScrollArea state
+        (read-only, no manual offset) or bypass it entirely and implement custom
+        scrolling.</p>
+      </div>
+    </div>
+
+    <!-- ── Next Session Plan ─────────────────────────────── -->
+    <h3 style="margin-top:28px">📐 Next Session — FCP-Style Workspace Rebuild</h3>
+    <p class="section-note">
+      The core problem: egui's SidePanel/CentralPanel split is fundamentally wrong for a
+      video editor.  Final Cut Pro, DaVinci Resolve, and Premiere all use a layout where
+      the <strong>viewer (preview) is a fixed, prominent rectangle</strong> and all tools
+      (inspector, browser, meters) live in <strong>docked panes around it</strong> that
+      <em>never obscure the viewer</em>.  egui's default panels work against this.  We
+      need to stop using SidePanel/CentralPanel for the main workspace and instead
+      implement the layout manually.
+    </p>
+
+    <h4>FCP-Style Layout Target</h4>
+    <div style="background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:20px;margin:16px 0;font:12px/1.9 var(--font-mono);white-space:pre;overflow-x:auto;color:var(--ink)">
+┌─────────────────────────────────────────────────────────┐
+│  Menu Bar                                                │
+├──────────────┬──────────────────────┬───────────────────┤
+│              │                      │  Inspector /       │
+│  Browser     │     VIEWER           │  Effects /         │
+│  (Events/    │   (always ≥640px,    │  VU Meter /        │
+│   Gallery/   │    centered,         │  Transform         │
+│   Plugins)   │    never squashed)   │  (tabbed,          │
+│              │                      │   max 280px)       │
+│  collapsible │                      │                   │
+│  220–320px   │  MIN WIDTH: 640px    │   collapsible      │
+│              │                      │   220–280px        │
+├──────────────┴──────────────────────┴───────────────────┤
+│  Timeline (always visible at bottom)                     │
+└─────────────────────────────────────────────────────────┘
+    </div>
+
+    <h4>Implementation Plan</h4>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th style="width:28px">#</th><th>Task</th><th>Approach</th><th style="width:72px">Est.</th></tr></thead>
+        <tbody>
+          <tr style="background:color-mix(in srgb,var(--red-bg) 40%,transparent)">
+            <td><strong>1</strong></td>
+            <td><strong>Replace SidePanel/CentralPanel with manual <code>ui.allocate_rect</code></strong></td>
+            <td>Stop using egui's panel system.  Allocate the full window area manually: compute
+            three columns (browser, viewer, inspector) from the available rect.  Viewer gets
+            a <strong>guaranteed minimum width</strong> (640px).  Left/right columns get
+            whatever remains; they collapse if the window is too narrow.</td>
+            <td>3–4 hr</td>
+          </tr>
+          <tr style="background:color-mix(in srgb,var(--red-bg) 40%,transparent)">
+            <td><strong>2</strong></td>
+            <td><strong>Collapsible side panels with resize handles</strong></td>
+            <td>Draw a draggable divider between columns.  Drag to resize; double-click to
+            collapse/expand.  Store column widths in <code>RookApp</code> state.  Minimum
+            widths: browser 160px, inspector 160px, viewer 640px.</td>
+            <td>2–3 hr</td>
+          </tr>
+          <tr style="background:color-mix(in srgb,var(--red-bg) 40%,transparent)">
+            <td><strong>3</strong></td>
+            <td><strong>Tabbed content in side columns</strong></td>
+            <td>Each side column has its own tab bar.  Left column tabs: Events, Gallery,
+            Plugins.  Right column tabs: Inspector, VU Meter, Effects.  Each tab shows
+            its panel content in the allocated column rect.  Tab state persists in
+            <code>RookApp</code>.</td>
+            <td>1–2 hr</td>
+          </tr>
+          <tr style="background:color-mix(in srgb,var(--amber-bg) 40%,transparent)">
+            <td><strong>4</strong></td>
+            <td><strong>Fix timeline scrolling properly</strong></td>
+            <td>Remove all manual <code>scroll_x</code>/<code>scroll_y</code> tracking.
+            Use egui's ScrollArea state read-only via <code>scroll_output.state.offset</code>.
+            For programmatic scroll (Fit, F-key), use <code>ScrollArea::vertical_scroll</code>
+            / <code>horizontal_scroll</code> show methods.  Hand tool: let ScrollArea handle
+            drag-to-pan natively by setting appropriate Sense on the content area.</td>
+            <td>2 hr</td>
+          </tr>
+          <tr style="background:color-mix(in srgb,var(--amber-bg) 40%,transparent)">
+            <td><strong>5</strong></td>
+            <td><strong>Style the workspace — dark theme, FCP look</strong></td>
+            <td>Apply the existing dark color palette consistently.  Rounded panel borders,
+            subtle separators, FCP-style tab buttons (small, monospace, accent-colored when
+            active).  Timeline gets a distinct background to visually anchor the bottom.
+            Preview area gets a dark surround (letterbox area) like FCP's viewer.</td>
+            <td>1 hr</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:28px">🏗️ Key Architectural Decision</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Drop egui Panels for the Main Workspace</h4>
+        <div class="meta">SidePanel/CentralPanel → manual rect allocation</div>
+        <p><strong>Why:</strong> egui's panel system allocates space with SidePanels taking
+        priority.  There is no way to guarantee the CentralPanel a minimum width.  For a
+        video editor where the viewer must <em>always</em> be prominent, this is a
+        deal-breaker.  We need manual control over column widths.</p>
+        <p><strong>How:</strong> In <code>RookApp::update()</code>, after the menu bar and
+        before the timeline, allocate the remaining space with <code>ui.allocate_rect</code>
+        or nested <code>ui.horizontal</code> with fixed ratios.  Compute three column rects
+        with the viewer guaranteed ≥640px.  Pass each rect to the appropriate panel's
+        <code>show()</code> method.</p>
+        <p><strong>Risk:</strong> We lose egui's built-in panel resizing and collapsing.
+        We'll need to implement drag-to-resize dividers manually (tracking pointer drag
+        on a narrow "gutter" rect between columns).  This is ~100 lines of well-understood
+        immediate-mode GUI code.</p>
+      </div>
+      <div class="card">
+        <h4>Keep TopBottomPanel for Menu + Timeline</h4>
+        <div class="meta">Only the middle section needs the custom layout</div>
+        <p>The menu bar (<code>TopBottomPanel::top</code>) and timeline
+        (<code>TopBottomPanel::bottom</code>) work fine as egui panels because they take
+        the full width and a fixed height.  Only the middle section (browser + viewer +
+        inspector) needs the custom manual layout.  This limits the scope of the change
+        to ~200 lines in <code>app.rs</code>.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:28px">📊 Target Dimensions (1280×720 window)</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Zone</th><th>Width</th><th>Height</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Menu bar</strong></td><td>1280px</td><td>~24px</td><td>egui TopBottomPanel::top</td></tr>
+          <tr><td><strong>Left browser</strong></td><td>220px</td><td>~616px</td><td>Collapsible, min 160px. Tabs: Events | Gallery | Plugins</td></tr>
+          <tr><td><strong>Viewer (preview)</strong></td><td><strong>≥640px</strong></td><td>~616px</td><td>Always centered. Letterbox surround when video is smaller. NEVER squashed.</td></tr>
+          <tr><td><strong>Right inspector</strong></td><td>240px</td><td>~616px</td><td>Collapsible, min 160px. Tabs: Inspector | VU Meter | Effects</td></tr>
+          <tr><td><strong>Timeline</strong></td><td>1280px</td><td>~240px</td><td>egui TopBottomPanel::bottom, resizable 120–400px</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:14px;font:13px/1.6 var(--font-serif);color:var(--muted);font-style:italic;max-width:70ch">
+      Session 14 attempted to add editing features and fix the workspace layout.  Cmd+S/Cmd+O,
+      blade hardening, and trim handles landed cleanly.  Scrolling is partially fixed but still
+      has edge cases.  The workspace layout attempt revealed a fundamental mismatch between
+      egui's panel model and a pro video editor's spatial requirements.  Next session will
+      replace SidePanel/CentralPanel with manual rect allocation — the same approach used by
+      every major NLE — and implement FCP-style collapsible tabbed sidebars around a
+      guaranteed-minimum-width viewer.  Total effort: ~10 hours.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
   <!-- NEXT STEPS                                          -->
   <!-- ═══════════════════════════════════════════════════ -->
   <section>
     <p class="section-label">Roadmap</p>
     <h2>What's Next</h2>
-    <p class="section-note">Feature checklist complete. Critical bugs and quality gaps identified in the 2026‑06‑06 honest assessment. Priority order:</p>
+    <p class="section-note">Feature checklist complete. Critical bugs and quality gaps identified. Priority order (updated 2026‑06‑08):</p>
     <ol style="padding-left:18px;font:14px/2 var(--font-sans);color:var(--ink)">
-      <li><strong style="color:var(--green)">✅ Fix playback clock</strong> — quarter-res compositing + log throttle (Session 13)</li>
-      <li><strong style="color:var(--green)">✅ Fix NV12 BT.709 color matrix</strong> — Done 2026‑06‑06</li>
+      <li><strong style="color:var(--red)">🔴 FCP-style workspace rebuild</strong> — manual rect allocation, collapsible sidebars, guaranteed viewer width (Session 15)</li>
+      <li><strong style="color:var(--amber)">🟡 Fix timeline scrolling</strong> — drop manual offset tracking, use ScrollArea natively (Session 15)</li>
+      <li><strong style="color:var(--green)">✅ Cmd+S / Cmd+O keyboard shortcuts</strong> — Done (Session 14)</li>
+      <li><strong style="color:var(--green)">✅ Blade tool hardening</strong> — zero-duration guard, source frame fix (Session 14)</li>
+      <li><strong style="color:var(--green)">✅ Trim handles + bracket indicators</strong> — Done (Session 14)</li>
       <li><strong style="color:var(--red)">Text rasterization in title generator</strong> — 2 days</li>
-      <li><strong style="color:var(--red)">Wire remaining 7 effect CPU passes</strong> — 1 week</li>
-      <li><strong style="color:var(--green)">✅ Audio playback — WORKING</strong> (Session 12)</li>
-      <li><strong style="color:var(--amber)">Clip thumbnails + waveform on clips</strong> — waveform done (S12), thumbnails remain</li>
+      <li><strong style="color:var(--amber)">Clip thumbnails on timeline bodies</strong> — ThumbnailCache exists, needs paint wiring</li>
       <li><strong style="color:var(--amber)">Seek pre-buffer + scrub smoothness</strong> — 3 days</li>
       <li>Wire GPU compositor into preview path</li>
       <li>Video scopes (histogram, waveform monitor, vectorscope)</li>
@@ -3467,7 +3802,7 @@ rook-cli ────────────┘    ├── rook-core (model: 
   <!-- FOOTER                                              -->
   <!-- ═══════════════════════════════════════════════════ -->
   <p class="footnote">
-    Last assessed: 2026‑06‑07 (session 13) &ensp;·&ensp; 280/280 checklist items &ensp;·&ensp; Pre-alpha quality &ensp;·&ensp; Timeline panel visible + video/audio split layout &ensp;·&ensp; Window fits screen (1280×720) &ensp;·&ensp; Theme brightened ~2× &ensp;·&ensp; Audio: cpal output + FFmpeg PCM decode + ring buffer (WORKING) · Video: quarter-res compositing (real-time 24fps) · Import freeze: FIXED &ensp;·&ensp; 19/30 effects no-op · No text render · No clip thumbnails &ensp;·&ensp; Rook v0.x
+    Last assessed: 2026‑06‑08 (session 14) &ensp;·&ensp; 280/280 checklist items &ensp;·&ensp; Pre-alpha quality &ensp;·&ensp; Cmd+S/Cmd+O working &ensp;·&ensp; Blade tool hardened &ensp;·&ensp; Trim handles visible with brackets &ensp;·&ensp; Timeline scrolling: partial &ensp;·&ensp; <strong>Workspace layout: broken — next session rebuilds with manual rect allocation</strong> &ensp;·&ensp; Audio: cpal output + FFmpeg PCM decode (WORKING) · Video: quarter-res compositing (real-time 24fps) &ensp;·&ensp; 19/30 effects no-op · No text render · No clip thumbnails &ensp;·&ensp; Rook v0.x
   </p>
 
 </main>

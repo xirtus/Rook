@@ -30,7 +30,7 @@ const TRACK_H_LARGE: f32 = 64.0;
 const AUDIO_SEPARATOR_H: f32 = 28.0;
 const MIN_PX_PER_FRAME: f32 = 0.25;
 const MAX_PX_PER_FRAME: f32 = 30.0;
-const TRIM_HANDLE_W: f32 = 6.0;
+const TRIM_HANDLE_W: f32 = 10.0;
 const SNAP_THRESHOLD: f32 = 8.0; // pixels
 const PLAYHEAD_COLOR: egui::Color32 = egui::Color32::RED;
 const MARKER_COLOR: egui::Color32 = egui::Color32::from_rgb(0, 200, 140);
@@ -187,6 +187,10 @@ pub struct TimelinePanel {
     saved_out_point: Option<i64>,
     /// Timeline index bar rect for click-to-jump.
     timeline_index_rect: Option<egui::Rect>,
+    /// True when we need to force a scroll position next frame
+    /// (set by Fit, F=playhead, Hand tool, zoom-to-selection).
+    /// Cleared after scroll_offset is applied.
+    pending_scroll: bool,
 }
 
 /// Snapshot of clip properties for copy/paste.
@@ -285,6 +289,7 @@ impl Default for TimelinePanel {
             saved_in_point: None,
             saved_out_point: None,
             timeline_index_rect: None,
+            pending_scroll: false,
         }
     }
 }
@@ -465,6 +470,7 @@ impl TimelinePanel {
                 self.zoom = (av_w / dur).clamp(MIN_PX_PER_FRAME, MAX_PX_PER_FRAME);
                 self.scroll_x = 0.0;
                 self.scroll_y = 0.0;
+                self.pending_scroll = true;
             }
 
             ui.separator();
@@ -512,11 +518,19 @@ impl TimelinePanel {
         let canvas_w = total_frames as f32 * self.zoom + 200.0; // pad right
         let canvas_h = self.visual_canvas_h(project);
 
-        // Scroll area — fill available vertical space, scroll horizontally freely
-        egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .scroll_offset(egui::vec2(self.scroll_x, self.scroll_y))
-            .show(ui, |ui| {
+        // Scroll area. Only force scroll_offset when we have a pending programmatic
+        // scroll (Fit, F key, hand-tool pan, zoom-to-selection). Otherwise let the
+        // ScrollArea manage its own internal state — trackpad, mouse wheel, and
+        // scrollbar dragging all work natively without us overriding the offset.
+        //
+        // We track the position by reading scroll_output.state.offset (the actual
+        // offset after user input) and also accumulate any scroll_delta.
+        let mut scroll_area = egui::ScrollArea::both()
+            .auto_shrink([false, false]);
+        if self.pending_scroll {
+            scroll_area = scroll_area.scroll_offset(egui::vec2(self.scroll_x, self.scroll_y));
+        }
+        let scroll_output = scroll_area.show(ui, |ui| {
                 let (response, painter) = ui.allocate_painter(
                     egui::vec2(canvas_w, canvas_h),
                     egui::Sense::click_and_drag(),
@@ -544,6 +558,7 @@ impl TimelinePanel {
                     let view_w = ui.clip_rect().width().max(100.0);
                     let playhead_px = *playhead as f32 * self.zoom + TRACK_HEADER_W;
                     self.scroll_x = (playhead_px - view_w / 2.0).max(0.0);
+                    self.pending_scroll = true;
                 }
                 // Shift+Z = zoom to fit timeline
                 if input_state.key_pressed(egui::Key::Z)
@@ -556,6 +571,7 @@ impl TimelinePanel {
                     self.zoom = (avail_w / dur).clamp(MIN_PX_PER_FRAME, MAX_PX_PER_FRAME);
                     self.scroll_x = 0.0;
                     self.scroll_y = 0.0;
+                    self.pending_scroll = true;
                 }
                 // Opt+Shift+Z = zoom to selection
                 if input_state.key_pressed(egui::Key::Z)
@@ -583,6 +599,7 @@ impl TimelinePanel {
                         let avail_w = ui.clip_rect().width().max(200.0) - TRACK_HEADER_W;
                         self.zoom = (avail_w / sel_dur).clamp(MIN_PX_PER_FRAME, MAX_PX_PER_FRAME);
                         self.scroll_x = (min_in as f32 * self.zoom).max(0.0);
+                        self.pending_scroll = true;
                     }
                 }
                 // Cmd+= / Cmd+- = zoom in/out
@@ -1362,18 +1379,61 @@ impl TimelinePanel {
                         }
                     }
 
-                    // Trim handles (subtle L/R zones)
-                    if cg.w > 12.0 {
+                    // Trim handles — visible L/R edge zones for scrubbing
+                    if cg.w > 16.0 {
+                        let handle_color = if cg.selected {
+                            egui::Color32::from_rgba_premultiplied(200, 180, 100, 180)
+                        } else {
+                            egui::Color32::from_rgba_premultiplied(140, 140, 140, 120)
+                        };
+                        let handle_w = TRIM_HANDLE_W.max(8.0);
                         let lh = egui::Rect::from_min_size(
                             clip_r.min,
-                            egui::vec2(TRIM_HANDLE_W, clip_r.height()),
+                            egui::vec2(handle_w, clip_r.height()),
                         );
                         let rh = egui::Rect::from_min_size(
-                            egui::pos2(clip_r.max.x - TRIM_HANDLE_W, clip_r.min.y),
-                            egui::vec2(TRIM_HANDLE_W, clip_r.height()),
+                            egui::pos2(clip_r.max.x - handle_w, clip_r.min.y),
+                            egui::vec2(handle_w, clip_r.height()),
                         );
-                        painter.rect_filled(lh, 0.0, egui::Color32::from_white_alpha(40));
-                        painter.rect_filled(rh, 0.0, egui::Color32::from_white_alpha(40));
+                        // Semi-transparent fill
+                        painter.rect_filled(lh, 2.0, handle_color);
+                        painter.rect_filled(rh, 2.0, handle_color);
+                        // Left/right bracket indicators for trim direction
+                        let bracket_h = clip_r.height() * 0.4;
+                        let bracket_top = clip_r.center().y - bracket_h / 2.0;
+                        let bracket_bot = bracket_top + bracket_h;
+                        // Left bracket
+                        painter.line_segment(
+                            [egui::pos2(clip_r.left() + 3.0, bracket_top),
+                             egui::pos2(clip_r.left() + 3.0, bracket_bot)],
+                            egui::Stroke::new(1.5, egui::Color32::from_white_alpha(160)),
+                        );
+                        painter.line_segment(
+                            [egui::pos2(clip_r.left() + 3.0, bracket_top),
+                             egui::pos2(clip_r.left() + handle_w, bracket_top)],
+                            egui::Stroke::new(1.5, egui::Color32::from_white_alpha(160)),
+                        );
+                        painter.line_segment(
+                            [egui::pos2(clip_r.left() + 3.0, bracket_bot),
+                             egui::pos2(clip_r.left() + handle_w, bracket_bot)],
+                            egui::Stroke::new(1.5, egui::Color32::from_white_alpha(160)),
+                        );
+                        // Right bracket
+                        painter.line_segment(
+                            [egui::pos2(clip_r.right() - 3.0, bracket_top),
+                             egui::pos2(clip_r.right() - 3.0, bracket_bot)],
+                            egui::Stroke::new(1.5, egui::Color32::from_white_alpha(160)),
+                        );
+                        painter.line_segment(
+                            [egui::pos2(clip_r.right() - 3.0, bracket_top),
+                             egui::pos2(clip_r.right() - handle_w, bracket_top)],
+                            egui::Stroke::new(1.5, egui::Color32::from_white_alpha(160)),
+                        );
+                        painter.line_segment(
+                            [egui::pos2(clip_r.right() - 3.0, bracket_bot),
+                             egui::pos2(clip_r.right() - handle_w, bracket_bot)],
+                            egui::Stroke::new(1.5, egui::Color32::from_white_alpha(160)),
+                        );
                     }
                 }
 
@@ -1520,14 +1580,23 @@ impl TimelinePanel {
 
                 // ── Handle input ────────────────────────────────────────
                 self.handle_input(ui, &response, project, &clips_geom, playhead, clip_rect);
-
-                // Save horizontal scroll state only (vertical stays 0 unless hand-tool panning)
-                let viewport_rect = ui.clip_rect();
-                self.scroll_x = (viewport_rect.min.x - clip_rect.min.x).max(0.0);
-                // Don't auto-track scroll_y — prevents vertical drift from viewport/content mismatch
-                // Keep scroll_y clamped to prevent negative values
-                self.scroll_y = self.scroll_y.max(0.0);
             });
+
+        // Sync scroll state. When the hand tool is actively dragging we keep
+        // our own computed values (set inside handle_input). Otherwise we read
+        // back from the ScrollArea's actual output so trackpad/scrollbar/wheel
+        // scrolls are captured.
+        if self.hand_drag_anchor.is_none() {
+            self.scroll_x = scroll_output.state.offset.x.max(0.0);
+            self.scroll_y = scroll_output.state.offset.y.max(0.0);
+        }
+        // Keep pending_scroll true when hand tool is active so next frame
+        // forces scroll_offset to our manually-tracked position.
+        if self.hand_drag_anchor.is_some() {
+            self.pending_scroll = true;
+        } else {
+            self.pending_scroll = false;
+        }
 
         // ── Clip context menu popup ────────────────────────────────────
         if let Some((cid, popup_pos)) = self.clip_context_popup.take() {
@@ -3135,7 +3204,12 @@ impl TimelinePanel {
                 let delta = response.drag_delta();
                 self.scroll_x = anchor_sx - delta.x;
                 self.scroll_y = (anchor_sy - delta.y).max(0.0);
+                self.pending_scroll = true;
                 return; // suppress normal click/drag while actively panning
+            }
+            // If drag just ended, still apply the final position
+            if !still_hand && self.hand_drag_anchor.is_some() {
+                self.pending_scroll = true;
             }
             // Drag ended or tool switched — clear anchor
             self.hand_drag_anchor = None;
@@ -3333,15 +3407,17 @@ impl TimelinePanel {
                     // ── Blade tool: split clip at click point ─────────────
                     if self.active_tool == Tool::Blade {
                         let click_frame = self.pixel_to_frame(pos.x - clip_rect.left());
-                        if project
-                            .timeline
-                            .clip(cg.clip_id)
-                            .map(|c| c.covers(click_frame))
-                            .unwrap_or(false)
-                        {
-                            self.split_clip_at(project, cg.clip_id, click_frame);
-                            *playhead = click_frame;
-                            project.timeline.playhead = *playhead;
+                        // Re-verify the clip still exists (guard against stale geom after
+                        // a previous blade cut in the same frame)
+                        if let Some(clip) = project.timeline.clip(cg.clip_id) {
+                            if clip.covers(click_frame)
+                                && click_frame > clip.timeline_in
+                                && click_frame < clip.timeline_in + clip.duration()
+                            {
+                                self.split_clip_at(project, cg.clip_id, click_frame);
+                                *playhead = click_frame;
+                                project.timeline.playhead = *playhead;
+                            }
                         }
                         return;
                     }
@@ -3369,14 +3445,76 @@ impl TimelinePanel {
                         return;
                     }
 
+                    // ── Trim tool: click anywhere on clip → trim nearest edge ──
+                    if self.active_tool == Tool::Trim && cg.w > 16.0 {
+                        let y = self.track_y(cg.track_id, project, clip_rect.top());
+                        let cr = egui::Rect::from_min_size(
+                            egui::pos2(cg.x, y + 3.0),
+                            egui::vec2(cg.w.max(12.0), self.track_h - 6.0),
+                        );
+                        let dist_to_left = pos.x - cr.left();
+                        let dist_to_right = cr.right() - pos.x;
+                        let shift = ui.input(|i| i.modifiers.shift);
+                        if let Some(clip) = project.timeline.clip(cg.clip_id) {
+                            if dist_to_left < dist_to_right {
+                                // Trim left edge
+                                let (roll_id, roll_in, roll_dur) = if !shift {
+                                    self.find_adjacent_clip(
+                                        project, cg.clip_id, cg.track_id,
+                                        clip.timeline_in, true,
+                                    )
+                                } else {
+                                    (None, None, None)
+                                };
+                                self.trim_state = Some(TrimState {
+                                    clip_id: cg.clip_id,
+                                    edge: TrimEdge::Left,
+                                    orig_in: clip.source_in,
+                                    orig_out: clip.source_in + clip.source_duration,
+                                    orig_dur: clip.source_duration,
+                                    orig_timeline_in: clip.timeline_in,
+                                    roll_clip_id: roll_id,
+                                    roll_orig_in: roll_in,
+                                    roll_orig_dur: roll_dur,
+                                    ripple: shift,
+                                });
+                            } else {
+                                // Trim right edge
+                                let right_edge = clip.timeline_in + clip.duration();
+                                let (roll_id, roll_in, roll_dur) = if !shift {
+                                    self.find_adjacent_clip(
+                                        project, cg.clip_id, cg.track_id,
+                                        right_edge, false,
+                                    )
+                                } else {
+                                    (None, None, None)
+                                };
+                                self.trim_state = Some(TrimState {
+                                    clip_id: cg.clip_id,
+                                    edge: TrimEdge::Right,
+                                    orig_in: clip.source_in,
+                                    orig_out: clip.source_in + clip.source_duration,
+                                    orig_dur: clip.source_duration,
+                                    orig_timeline_in: clip.timeline_in,
+                                    roll_clip_id: roll_id,
+                                    roll_orig_in: roll_in,
+                                    roll_orig_dur: roll_dur,
+                                    ripple: shift,
+                                });
+                            }
+                            project.timeline.select(cg.clip_id);
+                        }
+                        return;
+                    }
+
                     // Check trim handle zones
                     let y = self.track_y(cg.track_id, project, clip_rect.top());
                     let cr = egui::Rect::from_min_size(
                         egui::pos2(cg.x, y + 3.0),
                         egui::vec2(cg.w.max(12.0), self.track_h - 6.0),
                     );
-                    let in_left_handle = (pos.x - cr.left()).abs() < TRIM_HANDLE_W + 4.0;
-                    let in_right_handle = (cr.right() - pos.x).abs() < TRIM_HANDLE_W + 4.0;
+                    let in_left_handle = (pos.x - cr.left()).abs() < TRIM_HANDLE_W + 8.0;
+                    let in_right_handle = (cr.right() - pos.x).abs() < TRIM_HANDLE_W + 8.0;
 
                     let shift = ui.input(|i| i.modifiers.shift);
                     if in_left_handle && cg.w > 12.0 {
@@ -4474,14 +4612,25 @@ impl TimelinePanel {
             if let Some(track) = project.timeline.track_mut(tid) {
                 let original = track.remove_clip(clip_id);
                 if let Some(orig) = original {
+                    // split_pt is in timeline frames. Convert to source frames
+                    // via speed so source_in/source_duration are correct when speed ≠ 1.0.
                     let split_pt = at_frame - orig.timeline_in;
+                    let split_src = (split_pt as f64 * orig.speed).round() as i64;
+                    // Guard against splitting at the very start or end of a clip,
+                    // which would create a zero-duration segment and potentially
+                    // corrupt the track state.
+                    if split_pt <= 0 || split_pt >= orig.duration() {
+                        // Re-insert the original clip unchanged and bail.
+                        track.insert_clip(orig).ok();
+                        return;
+                    }
                     let left = rook_core::clip::Clip {
                         id: ClipId::next(),
                         label: format!("{} A", orig.label),
                         asset_id: orig.asset_id,
                         timeline_in: orig.timeline_in,
                         source_in: orig.source_in,
-                        source_duration: split_pt,
+                        source_duration: split_src,
                         transform: orig.transform.clone(),
                         blend_mode: orig.blend_mode,
                         mask: orig.mask.clone(),
@@ -4506,8 +4655,8 @@ impl TimelinePanel {
                         label: format!("{} B", orig.label),
                         asset_id: orig.asset_id,
                         timeline_in: at_frame,
-                        source_in: orig.source_in + split_pt,
-                        source_duration: orig.source_duration - split_pt,
+                        source_in: orig.source_in + split_src,
+                        source_duration: orig.source_duration - split_src,
                         transform: orig.transform,
                         blend_mode: orig.blend_mode,
                         mask: orig.mask,

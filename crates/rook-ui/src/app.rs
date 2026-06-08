@@ -150,6 +150,21 @@ fn add_recent(list: &mut Vec<(String, String)>, name: String, path: String) {
     save_recent_projects(list);
 }
 
+/// Which tab is active in the left media-browser panel (FCP-style).
+#[derive(Clone, Copy, PartialEq)]
+enum LeftTab {
+    Browser,
+    Gallery,
+}
+
+/// Which tab is active in the right inspector panel.
+#[derive(Clone, Copy, PartialEq)]
+enum RightTab {
+    Inspector,
+    Plugins,
+    Multicam,
+}
+
 pub struct RookApp {
     engine: Arc<Mutex<Engine>>,
     ipc_server: Option<IpcServer>,
@@ -178,6 +193,10 @@ pub struct RookApp {
     show_event_library: bool,
     /// Plugin browser sidebar.
     show_plugin_browser: bool,
+    /// Active tab in the left media-browser panel.
+    left_tab: LeftTab,
+    /// Active tab in the right inspector panel.
+    right_tab: RightTab,
 
     // Transport
     playing: bool,
@@ -264,10 +283,12 @@ impl RookApp {
             show_inspector: true,
             show_markers: false,
             show_multicam: false,
-            show_vu_meter: true,
+            show_vu_meter: false,
             show_export_dialog: false,
             show_event_library: true,
             show_plugin_browser: false,
+            left_tab: LeftTab::Browser,
+            right_tab: RightTab::Inspector,
             playing: false,
             playhead,
             looping: false,
@@ -613,6 +634,46 @@ impl eframe::App for RookApp {
         }
         if app_input.key_pressed(egui::Key::Num3) && cmd && app_input.modifiers.shift {
             self.show_markers = !self.show_markers;
+        }
+        // Cmd+S = save
+        if app_input.key_pressed(egui::Key::S) && cmd && !app_input.modifiers.shift {
+            if engine.db_path().is_none() {
+                let app_dir = dirs::data_local_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("Rook");
+                std::fs::create_dir_all(&app_dir).ok();
+                let db_path = app_dir.join(format!("{}.rook", engine.project().name));
+                if let Err(err) = engine.init_db(&db_path) {
+                    tracing::error!(?err, "failed to init database");
+                }
+            }
+            match engine.save_project(None) {
+                Ok(path) => {
+                    let path_str = path.display().to_string();
+                    let name = engine.project().name.clone();
+                    tracing::info!(?path, "project saved via Cmd+S");
+                    add_recent(&mut self.recent_projects, name, path_str);
+                }
+                Err(err) => tracing::error!(?err, "save via Cmd+S failed"),
+            }
+        }
+        // Cmd+O = open project
+        if app_input.key_pressed(egui::Key::O) && cmd && !app_input.modifiers.shift {
+            if self.file_dialog_rx.is_none() {
+                let ctx_clone = ctx.clone();
+                self.file_dialog_rx = Some(spawn_file_dialog(&ctx_clone, || {
+                    let output = std::process::Command::new("osascript")
+                        .args(["-e", "POSIX path of (choose file)"])
+                        .output()
+                        .ok()?;
+                    let s = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(FileDialogResult::OpenProject(PathBuf::from(s)))
+                    }
+                }));
+            }
         }
         // Cmd+E = export
         if app_input.key_pressed(egui::Key::E) && cmd && !app_input.modifiers.shift {
@@ -1159,13 +1220,23 @@ impl eframe::App for RookApp {
                     });
                 }
                 ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.show_gallery, "Gallery");
-                    ui.checkbox(&mut self.show_inspector, "Inspector");
+                    if ui.checkbox(&mut self.show_inspector, "📋 Inspector").changed() && self.show_inspector {
+                        self.right_tab = RightTab::Inspector;
+                    }
+                    if ui.checkbox(&mut self.show_event_library, "📚 Event Library").changed() && self.show_event_library {
+                        self.left_tab = LeftTab::Browser;
+                    }
+                    if ui.checkbox(&mut self.show_gallery, "🖼 Gallery").changed() && self.show_gallery {
+                        self.left_tab = LeftTab::Gallery;
+                    }
+                    if ui.checkbox(&mut self.show_plugin_browser, "🔌 Plugins").changed() && self.show_plugin_browser {
+                        self.right_tab = RightTab::Plugins;
+                    }
+                    ui.checkbox(&mut self.show_vu_meter, "🔊 VU Meter Strip");
+                    if ui.checkbox(&mut self.show_multicam, "📷 Multicam Angle Viewer").changed() && self.show_multicam {
+                        self.right_tab = RightTab::Multicam;
+                    }
                     ui.checkbox(&mut self.show_markers, "📍 Markers");
-                    ui.checkbox(&mut self.show_multicam, "📷 Multicam Angle Viewer");
-                    ui.checkbox(&mut self.show_vu_meter, "🔊 VU Meter");
-                    ui.checkbox(&mut self.show_event_library, "📚 Event Library");
-                    ui.checkbox(&mut self.show_plugin_browser, "🔌 Plugin Browser");
                     ui.separator();
                     let light_label = if self.light_mode {
                         "🌙 Dark Mode"
@@ -1185,6 +1256,7 @@ impl eframe::App for RookApp {
                         self.show_vu_meter = false;
                         self.show_event_library = true;
                         self.show_plugin_browser = false;
+                        self.right_tab = RightTab::Inspector;
                         ui.close_menu();
                     }
                     if ui.button("🎨 Color & Effects").clicked() {
@@ -1194,15 +1266,17 @@ impl eframe::App for RookApp {
                         self.show_vu_meter = false;
                         self.show_event_library = false;
                         self.show_plugin_browser = false;
+                        self.right_tab = RightTab::Inspector;
                         ui.close_menu();
                     }
                     if ui.button("🔊 Audio").clicked() {
                         self.show_gallery = false;
-                        self.show_inspector = false;
+                        self.show_inspector = true;
                         self.show_markers = false;
                         self.show_vu_meter = true;
                         self.show_event_library = false;
                         self.show_plugin_browser = false;
+                        self.right_tab = RightTab::Inspector;
                         ui.close_menu();
                     }
                     if ui.button("📋 Logging").clicked() {
@@ -1212,6 +1286,7 @@ impl eframe::App for RookApp {
                         self.show_vu_meter = false;
                         self.show_event_library = true;
                         self.show_plugin_browser = false;
+                        self.left_tab = LeftTab::Browser;
                         ui.close_menu();
                     }
                     if ui.button("🔄 Reset Workspace").clicked() {
@@ -1221,6 +1296,7 @@ impl eframe::App for RookApp {
                         self.show_vu_meter = false;
                         self.show_event_library = true;
                         self.show_plugin_browser = false;
+                        self.right_tab = RightTab::Inspector;
                         ui.close_menu();
                     }
                     ui.separator();
@@ -1350,173 +1426,192 @@ impl eframe::App for RookApp {
                 });
         }
 
-        // ── Right: Inspector ────────────────────────────────────────────
-        if self.show_inspector {
-            egui::SidePanel::right("inspector")
-                .default_width(260.0)
-                .resizable(true)
-                .show(ctx, |ui| {
-                    self.inspector
-                        .show(ui, engine.project_mut(), &self.playhead);
-                });
-        }
-
-        // ── Right: VU Meter ──────────────────────────────────────────────
+        // ── Bottom: VU Meter strip (above markers/timeline, never touches preview)
         if self.show_vu_meter {
-            egui::SidePanel::right("vu_meter")
-                .default_width(160.0)
-                .resizable(true)
+            egui::TopBottomPanel::bottom("vu_strip")
+                .default_height(72.0)
+                .resizable(false)
+                .show_separator_line(true)
                 .show(ctx, |ui| {
                     self.vu_meter.show(ui, engine.project(), self.playhead);
                 });
         }
 
-        // ── Right: Multicam Angle Viewer (shown as right panel) ──────────
-        if self.show_multicam {
-            let selected = engine.project().timeline.selected_clip_ids.clone();
-            egui::SidePanel::right("multicam_panel")
-                .default_width(260.0)
-                .resizable(true)
-                .show(ctx, |ui| {
-                    if let Some(switched_idx) = self.multicam.show(ui, &mut engine, &selected) {
-                        if let Some(cid) = selected.first() {
-                            let cmd = rook_core::commands::EditCommand::SwitchMulticamAngle {
-                                clip_id: *cid,
-                                angle_index: switched_idx,
-                            };
-                            engine.apply(cmd).ok();
-                        }
-                    }
-                });
-        }
-
-        // ── Right: Library Panel (tabbed: Gallery | Event Library | Plugin Browser) ──
-        let show_library = self.show_event_library
-            || self.show_gallery
-            || self.show_plugin_browser;
-        if show_library {
-            egui::SidePanel::right("library_panel")
-                .default_width(280.0)
-                .min_width(160.0)
+        // ── Left: Media Browser — FCP-style Event Library / Gallery ────────
+        if self.show_event_library || self.show_gallery {
+            egui::SidePanel::left("left_browser")
+                .default_width(220.0)
+                .min_width(140.0)
+                .max_width(320.0)
                 .resizable(true)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        if ui
-                            .selectable_label(self.show_event_library, "📚 Events")
-                            .clicked()
+                        if self.show_event_library
+                            && ui
+                                .selectable_label(self.left_tab == LeftTab::Browser, "📚 Browser")
+                                .clicked()
                         {
-                            self.show_event_library = !self.show_event_library;
+                            self.left_tab = LeftTab::Browser;
                         }
-                        if ui
-                            .selectable_label(self.show_gallery, "🖼 Gallery")
-                            .clicked()
+                        if self.show_gallery
+                            && ui
+                                .selectable_label(self.left_tab == LeftTab::Gallery, "🖼 Gallery")
+                                .clicked()
                         {
-                            self.show_gallery = !self.show_gallery;
-                        }
-                        if ui
-                            .selectable_label(self.show_plugin_browser, "🔌 Plugins")
-                            .clicked()
-                        {
-                            self.show_plugin_browser = !self.show_plugin_browser;
+                            self.left_tab = LeftTab::Gallery;
                         }
                     });
                     ui.separator();
-
-                    if self.show_event_library {
-                        ui.heading("📚 Event Library");
-                        ui.separator();
-                        let events = [
-                            (
-                                "🎬 Video Clips",
-                                engine
-                                    .project()
-                                    .timeline
-                                    .tracks
-                                    .iter()
-                                    .filter(|t| t.kind == rook_core::track::TrackKind::Video)
+                    match self.left_tab {
+                        LeftTab::Browser => {
+                            if self.show_event_library {
+                                ui.heading("📚 Event Library");
+                                ui.separator();
+                                let events = [
+                                    (
+                                        "🎬 Video Clips",
+                                        engine.project().timeline.tracks.iter()
+                                            .filter(|t| t.kind == rook_core::track::TrackKind::Video)
+                                            .flat_map(|t| t.clips.iter()).count(),
+                                    ),
+                                    (
+                                        "🔊 Audio Clips",
+                                        engine.project().timeline.tracks.iter()
+                                            .filter(|t| t.kind == rook_core::track::TrackKind::Audio)
+                                            .flat_map(|t| t.clips.iter()).count(),
+                                    ),
+                                    (
+                                        "📝 Text/Subtitles",
+                                        engine.project().timeline.tracks.iter()
+                                            .filter(|t| t.kind == rook_core::track::TrackKind::Text)
+                                            .flat_map(|t| t.clips.iter()).count(),
+                                    ),
+                                ];
+                                for (label, count) in &events {
+                                    ui.label(format!("{}: {}", label, count));
+                                }
+                                ui.separator();
+                                ui.label("📍 Markers:");
+                                for m in &engine.project().timeline.markers {
+                                    let fps = engine.project().frame_rate.as_f64();
+                                    let secs = m.frame as f64 / fps;
+                                    ui.label(format!(
+                                        "  {} — {}:{:05.2}",
+                                        m.label,
+                                        (secs / 60.0) as i64,
+                                        secs % 60.0
+                                    ));
+                                }
+                                ui.separator();
+                                ui.label("📦 Compound Clips:");
+                                ui.label(format!(
+                                    "  {} compound clips",
+                                    engine.project().timeline.compound_contents.len()
+                                ));
+                                ui.separator();
+                                ui.label(format!(
+                                    "🗂 {} assets total",
+                                    engine.project().assets.len()
+                                ));
+                                let on_timeline: usize = engine.project().timeline.tracks.iter()
                                     .flat_map(|t| t.clips.iter())
-                                    .count(),
-                            ),
-                            (
-                                "🔊 Audio Clips",
-                                engine
-                                    .project()
-                                    .timeline
-                                    .tracks
-                                    .iter()
-                                    .filter(|t| t.kind == rook_core::track::TrackKind::Audio)
-                                    .flat_map(|t| t.clips.iter())
-                                    .count(),
-                            ),
-                            (
-                                "📝 Text/Subtitles",
-                                engine
-                                    .project()
-                                    .timeline
-                                    .tracks
-                                    .iter()
-                                    .filter(|t| t.kind == rook_core::track::TrackKind::Text)
-                                    .flat_map(|t| t.clips.iter())
-                                    .count(),
-                            ),
-                        ];
-                        for (label, count) in &events {
-                            ui.label(format!("{}: {}", label, count));
+                                    .map(|c| c.asset_id)
+                                    .collect::<std::collections::HashSet<_>>()
+                                    .len();
+                                ui.label(format!("  {} used on timeline", on_timeline));
+                            }
                         }
-                        ui.separator();
-                        ui.label("📍 Markers:");
-                        for m in &engine.project().timeline.markers {
-                            let fps = engine.project().frame_rate.as_f64();
-                            let secs = m.frame as f64 / fps;
-                            ui.label(format!(
-                                "  {} — {}:{:05.2}",
-                                m.label,
-                                (secs / 60.0) as i64,
-                                secs % 60.0
-                            ));
+                        LeftTab::Gallery => {
+                            if self.show_gallery {
+                                self.gallery.show(ui, &mut engine, &self.timeline.thumbnail_cache);
+                            }
                         }
-                        ui.separator();
-                        ui.label("📦 Compound Clips:");
-                        let compound_count = engine.project().timeline.compound_contents.len();
-                        ui.label(format!("  {} compound clips", compound_count));
-                        ui.separator();
-                        ui.label(format!("🗂 {} assets total", engine.project().assets.len()));
-                        let on_timeline: usize = engine
-                            .project()
-                            .timeline
-                            .tracks
-                            .iter()
-                            .flat_map(|t| t.clips.iter())
-                            .map(|c| c.asset_id)
-                            .collect::<std::collections::HashSet<_>>()
-                            .len();
-                        ui.label(format!("  {} used on timeline", on_timeline));
-                    }
-
-                    if self.show_gallery {
-                        self.gallery.show(
-                            ui,
-                            &mut engine,
-                            &self.timeline.thumbnail_cache,
-                        );
-                    }
-
-                    if self.show_plugin_browser {
-                        self.plugin_browser.show(ui, &mut engine);
                     }
                 });
         }
 
-        // ── Center: Preview monitor ─────────────────────────────────────
-        // Set preview quality based on playback state (outside egui render pass)
+        // ── Right: Inspector Panel ──────────────────────────────────────────
+        // VU meter is NOT here — it lives in the bottom strip so it can never
+        // steal width from the preview.
+        {
+            let show_right = self.show_inspector
+                || self.show_plugin_browser
+                || self.show_multicam;
+            if show_right {
+                egui::SidePanel::right("right_unified")
+                    .default_width(240.0)
+                    .min_width(140.0)
+                    .max_width(360.0)
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        // ── Tab bar ───────────────────────────────────────
+                        ui.horizontal(|ui| {
+                            if self.show_inspector
+                                && ui
+                                    .selectable_label(
+                                        self.right_tab == RightTab::Inspector,
+                                        "📋 Inspector",
+                                    )
+                                    .clicked()
+                            {
+                                self.right_tab = RightTab::Inspector;
+                            }
+                            if self.show_plugin_browser
+                                && ui
+                                    .selectable_label(
+                                        self.right_tab == RightTab::Plugins,
+                                        "🔌 Plugins",
+                                    )
+                                    .clicked()
+                            {
+                                self.right_tab = RightTab::Plugins;
+                            }
+                            if self.show_multicam
+                                && ui
+                                    .selectable_label(
+                                        self.right_tab == RightTab::Multicam,
+                                        "📷 MC",
+                                    )
+                                    .clicked()
+                            {
+                                self.right_tab = RightTab::Multicam;
+                            }
+                        });
+                        ui.separator();
+                        // ── Active tab content ────────────────────────────
+                        match self.right_tab {
+                            RightTab::Inspector => {
+                                if self.show_inspector {
+                                    self.inspector.show(ui, engine.project_mut(), &self.playhead);
+                                }
+                            }
+                            RightTab::Plugins => {
+                                self.plugin_browser.show(ui, &mut engine);
+                            }
+                            RightTab::Multicam => {
+                                let selected = engine.project().timeline.selected_clip_ids.clone();
+                                if let Some(switched_idx) =
+                                    self.multicam.show(ui, &mut engine, &selected)
+                                {
+                                    if let Some(cid) = selected.first() {
+                                        let cmd =
+                                            rook_core::commands::EditCommand::SwitchMulticamAngle {
+                                                clip_id: *cid,
+                                                angle_index: switched_idx,
+                                            };
+                                        engine.apply(cmd).ok();
+                                    }
+                                }
+                            }
+                        }
+                    });
+            }
+        }
+
+        // ── Center: Preview monitor — always unobscured ─────────────────────
         self.preview.set_playing(self.playing);
         let active_tool = self.timeline.active_tool;
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.colored_label(
-                egui::Color32::from_rgb(255, 200, 100),
-                "▬▬ PREVIEW — click File → Import Media to load video ▬▬",
-            );
-            ui.separator();
             self.preview.show(
                 ui,
                 &mut engine,
