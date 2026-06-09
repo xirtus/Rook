@@ -191,6 +191,9 @@ pub struct TimelinePanel {
     /// (set by Fit, F=playhead, Hand tool, zoom-to-selection).
     /// Cleared after scroll_offset is applied.
     pending_scroll: bool,
+    /// Canvas position where the user first pressed the mouse button.
+    /// Used for lazy drag initialisation so a press+drag in one gesture moves a clip.
+    drag_press_pos: Option<egui::Pos2>,
 }
 
 /// Snapshot of clip properties for copy/paste.
@@ -290,6 +293,7 @@ impl Default for TimelinePanel {
             saved_out_point: None,
             timeline_index_rect: None,
             pending_scroll: false,
+            drag_press_pos: None,
         }
     }
 }
@@ -327,6 +331,10 @@ enum TrimEdge {
 }
 
 impl TimelinePanel {
+    pub fn is_drag_active(&self) -> bool {
+        self.drag_clip.is_some()
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, project: &mut Project, playhead: &mut i64) {
         project.timeline.playhead = *playhead;
         let fps = project.timeline.frame_rate.as_f64();
@@ -3110,11 +3118,9 @@ impl TimelinePanel {
                 }
             }
         }
-        // S = split at playhead
+        // S = split at playhead (cuts all clips that span the playhead, respecting link groups)
         if input.key_pressed(egui::Key::S) && !input.modifiers.ctrl && !input.modifiers.command {
-            if let Some(cid) = project.timeline.selected_clip_ids.first().copied() {
-                self.split_clip_at(project, cid, *playhead);
-            }
+            self.blade_all_tracks(project, *playhead);
         }
         // Shift+Cmd+B = blade all tracks at playhead
         if input.key_pressed(egui::Key::B) && input.modifiers.command && input.modifiers.shift {
@@ -3185,6 +3191,28 @@ impl TimelinePanel {
         if ctrl && scroll.y != 0.0 {
             self.zoom *= 1.0 + scroll.y * 0.005;
             self.zoom = self.zoom.clamp(MIN_PX_PER_FRAME, MAX_PX_PER_FRAME);
+        }
+
+        // ── Drag state hygiene ────────────────────────────────────────────
+        // Record where the user first pressed the mouse button on the canvas so
+        // that a press+drag in one gesture can lazily initialise drag_clip.
+        if ui.input(|i| i.pointer.primary_pressed()) {
+            if let Some(p) = pointer {
+                if response.rect.contains(p) {
+                    self.drag_press_pos = Some(p);
+                }
+            }
+        }
+        // Clear stale drag_clip: if the mouse button is not held and we are not
+        // in the middle of a drag, any drag_clip left over from a previous click
+        // must not silently move a clip the next time the user presses the mouse.
+        let primary_held = ui.input(|i| i.pointer.primary_down());
+        if self.drag_clip.is_some()
+            && !primary_held
+            && !response.dragged_by(egui::PointerButton::Primary)
+        {
+            self.drag_clip = None;
+            self.drag_press_pos = None;
         }
 
         // ── Hand tool: start pan ──────────────────────────────────────────
@@ -3407,17 +3435,21 @@ impl TimelinePanel {
                     // ── Blade tool: split clip at click point ─────────────
                     if self.active_tool == Tool::Blade {
                         let click_frame = self.pixel_to_frame(pos.x - clip_rect.left());
-                        // Re-verify the clip still exists (guard against stale geom after
-                        // a previous blade cut in the same frame)
+                        eprintln!("[blade] click at px={:.1} frame={} clip={:?}", pos.x - clip_rect.left(), click_frame, cg.clip_id);
                         if let Some(clip) = project.timeline.clip(cg.clip_id) {
-                            if clip.covers(click_frame)
-                                && click_frame > clip.timeline_in
-                                && click_frame < clip.timeline_in + clip.duration()
-                            {
+                            let covers = clip.covers(click_frame);
+                            let gt_in = click_frame > clip.timeline_in;
+                            let lt_end = click_frame < clip.timeline_in + clip.duration();
+                            eprintln!("[blade] clip timeline_in={} duration={} covers={} gt_in={} lt_end={}", clip.timeline_in, clip.duration(), covers, gt_in, lt_end);
+                            if covers && gt_in && lt_end {
                                 self.split_clip_at(project, cg.clip_id, click_frame);
                                 *playhead = click_frame;
                                 project.timeline.playhead = *playhead;
+                                eprintln!("[blade] split done, tracks now have {} total clips",
+                                    project.timeline.tracks.iter().map(|t| t.clips.len()).sum::<usize>());
                             }
+                        } else {
+                            eprintln!("[blade] clip not found in timeline!");
                         }
                         return;
                     }
@@ -3619,7 +3651,7 @@ impl TimelinePanel {
                             });
                         }
                         project.timeline.select(cg.clip_id);
-                    } else if ui.input(|i| i.modifiers.command || ui.input(|i| i.modifiers.ctrl))
+                    } else if ui.input(|i| i.modifiers.command || i.modifiers.ctrl)
                         && cg.w > 12.0
                     {
                         // Cmd+click inside clip → slide trim
@@ -3676,13 +3708,8 @@ impl TimelinePanel {
                                 }
                             }
                         } else {
-                            // Begin normal drag
-                            self.drag_clip = Some(DragState {
-                                clip_id: cg.clip_id,
-                                orig_track: cg.track_id,
-                                orig_pos: self.pixel_to_frame(cg.x - clip_rect.left()),
-                                offset_x: pos.x - cg.x,
-                            });
+                            // Select on click; drag will be initialised lazily on
+                            // the first dragged_by() event using drag_press_pos.
                             let link_group = project
                                 .timeline
                                 .clip(cg.clip_id)
@@ -3704,17 +3731,10 @@ impl TimelinePanel {
                             } else {
                                 project.timeline.toggle_select(cg.clip_id);
                             }
-                            *playhead = self.pixel_to_frame(cg.x - clip_rect.left());
-                            project.timeline.playhead = *playhead;
                         }
                     } else {
-                        // Begin drag
-                        self.drag_clip = Some(DragState {
-                            clip_id: cg.clip_id,
-                            orig_track: cg.track_id,
-                            orig_pos: self.pixel_to_frame(cg.x - clip_rect.left()),
-                            offset_x: pos.x - cg.x,
-                        });
+                        // Select on click; drag will be initialised lazily on
+                        // the first dragged_by() event using drag_press_pos.
                         let link_group = project
                             .timeline
                             .clip(cg.clip_id)
@@ -3736,8 +3756,6 @@ impl TimelinePanel {
                         } else {
                             project.timeline.toggle_select(cg.clip_id);
                         }
-                        *playhead = self.pixel_to_frame(cg.x - clip_rect.left());
-                        project.timeline.playhead = *playhead;
                     }
                 } else {
                     // Clicked empty space
@@ -3829,6 +3847,62 @@ impl TimelinePanel {
                     let delta = frame - slip.drag_start_frame;
                     if let Some(clip) = project.timeline.clip_mut(slip.clip_id) {
                         clip.source_in = (slip.orig_source_in + delta).max(0);
+                    }
+                }
+
+                // ── Lazy drag init (press + move in one gesture) ───────────────
+                // If no drag is in progress but the user pressed on a clip and is
+                // now moving, initialise drag_clip here instead of waiting for a
+                // separate click.
+                if self.drag_clip.is_none() {
+                    if let Some(press_pos) = self.drag_press_pos.take() {
+                        if self.active_tool == Tool::Select {
+                            let mut hit: Option<ClipGeom> = None;
+                            for cg in clips.iter().rev() {
+                                let y = self.track_y(cg.track_id, project, clip_rect.top());
+                                let cr = egui::Rect::from_min_size(
+                                    egui::pos2(cg.x, y + 3.0),
+                                    egui::vec2(cg.w.max(2.0), self.track_h - 6.0),
+                                );
+                                if cr.contains(press_pos) {
+                                    hit = Some(cg.clone());
+                                    break;
+                                }
+                            }
+                            if let Some(cg) = hit {
+                                let in_left = (press_pos.x - cg.x).abs() < TRIM_HANDLE_W + 8.0;
+                                let in_right = (cg.x + cg.w - press_pos.x).abs() < TRIM_HANDLE_W + 8.0;
+                                if !in_left && !in_right && cg.w > 12.0 {
+                                    let link_group = project
+                                        .timeline
+                                        .clip(cg.clip_id)
+                                        .and_then(|c| c.link_group_id);
+                                    let shift_held = ui.input(|i| i.modifiers.shift);
+                                    if let Some(lg) = link_group {
+                                        if !shift_held {
+                                            project.timeline.clear_selection();
+                                            for track in &project.timeline.tracks {
+                                                for clip in &track.clips {
+                                                    if clip.link_group_id == Some(lg) {
+                                                        project.timeline.selected_clip_ids.push(clip.id);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if !shift_held {
+                                        project.timeline.select(cg.clip_id);
+                                    } else {
+                                        project.timeline.toggle_select(cg.clip_id);
+                                    }
+                                    self.drag_clip = Some(DragState {
+                                        clip_id: cg.clip_id,
+                                        orig_track: cg.track_id,
+                                        orig_pos: self.pixel_to_frame(cg.x - clip_rect.left()),
+                                        offset_x: press_pos.x - cg.x,
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -4042,6 +4116,7 @@ impl TimelinePanel {
             self.track_drop_target = None;
 
             self.drag_clip = None;
+            self.drag_press_pos = None;
             self.trim_state = None;
             self.slip_state = None;
             self.slide_state = None;
@@ -4599,112 +4674,186 @@ impl TimelinePanel {
         frame
     }
 
-    /// Split a single clip at the given timeline frame.
+    /// Split a clip (and any clips sharing its link_group_id) at `at_frame`.
+    /// After all splits, rebuilds the clip-track index so look-ups stay O(1).
     fn split_clip_at(&mut self, project: &mut Project, clip_id: ClipId, at_frame: i64) {
-        if let Some(clip) = project.timeline.clip(clip_id) {
-            if !clip.covers(at_frame) {
-                return;
-            }
-        } else {
-            return;
-        }
-        if let Some(tid) = project.timeline.clip_track_id(clip_id) {
-            if let Some(track) = project.timeline.track_mut(tid) {
-                let original = track.remove_clip(clip_id);
-                if let Some(orig) = original {
-                    // split_pt is in timeline frames. Convert to source frames
-                    // via speed so source_in/source_duration are correct when speed ≠ 1.0.
-                    let split_pt = at_frame - orig.timeline_in;
-                    let split_src = (split_pt as f64 * orig.speed).round() as i64;
-                    // Guard against splitting at the very start or end of a clip,
-                    // which would create a zero-duration segment and potentially
-                    // corrupt the track state.
-                    if split_pt <= 0 || split_pt >= orig.duration() {
-                        // Re-insert the original clip unchanged and bail.
-                        track.insert_clip(orig).ok();
-                        return;
+        // Collect the main clip's link group before any mutation.
+        let link_group = project.timeline.clip(clip_id).and_then(|c| c.link_group_id);
+
+        // Build the full list of clips to split: the requested one plus any
+        // linked peers (same link_group_id) that also span at_frame.
+        let mut to_split: Vec<ClipId> = vec![clip_id];
+        if let Some(lg) = link_group {
+            for track in &project.timeline.tracks {
+                for clip in &track.clips {
+                    if clip.id != clip_id
+                        && clip.link_group_id == Some(lg)
+                        && clip.covers(at_frame)
+                        && at_frame > clip.timeline_in
+                        && at_frame < clip.timeline_in + clip.duration()
+                    {
+                        to_split.push(clip.id);
                     }
-                    let left = rook_core::clip::Clip {
-                        id: ClipId::next(),
-                        label: format!("{} A", orig.label),
-                        asset_id: orig.asset_id,
-                        timeline_in: orig.timeline_in,
-                        source_in: orig.source_in,
-                        source_duration: split_src,
-                        transform: orig.transform.clone(),
-                        blend_mode: orig.blend_mode,
-                        mask: orig.mask.clone(),
-                        fade: orig.fade,
-                        transition: None,
-                        speed: orig.speed,
-                        speed_curve: orig.speed_curve.clone(),
-                        reverse: orig.reverse,
-                        freeze_frame: orig.freeze_frame,
-                        frame_blending: orig.frame_blending,
-                        spatial_conform: orig.spatial_conform,
-                        gain_db: orig.gain_db,
-                        volume_keyframes: orig.volume_keyframes.clone(),
-                        mute_audio: orig.mute_audio,
-                        filters: orig.filters.clone(),
-                        keyframes: orig.keyframes.clone(),
-                        link_group_id: orig.link_group_id,
-                        generator: orig.generator.clone(),
-                    };
-                    let right = rook_core::clip::Clip {
-                        id: ClipId::next(),
-                        label: format!("{} B", orig.label),
-                        asset_id: orig.asset_id,
-                        timeline_in: at_frame,
-                        source_in: orig.source_in + split_src,
-                        source_duration: orig.source_duration - split_src,
-                        transform: orig.transform,
-                        blend_mode: orig.blend_mode,
-                        mask: orig.mask,
-                        fade: orig.fade,
-                        transition: None,
-                        speed: orig.speed,
-                        speed_curve: orig.speed_curve,
-                        reverse: orig.reverse,
-                        freeze_frame: orig.freeze_frame,
-                        frame_blending: orig.frame_blending,
-                        spatial_conform: orig.spatial_conform,
-                        gain_db: orig.gain_db,
-                        volume_keyframes: orig.volume_keyframes.clone(),
-                        mute_audio: orig.mute_audio,
-                        filters: orig.filters,
-                        keyframes: orig.keyframes,
-                        link_group_id: orig.link_group_id,
-                        generator: orig.generator,
-                    };
-                    let right_id = right.id;
-                    track.insert_clip(left).ok();
-                    track.insert_clip(right).ok();
-                    project.timeline.select(right_id);
                 }
             }
         }
+
+        let mut left_ids: Vec<ClipId> = Vec::new();
+        let mut right_ids: Vec<ClipId> = Vec::new();
+        for cid in to_split {
+            if let Some((lid, rid)) = self.split_one_clip(project, cid, at_frame) {
+                left_ids.push(lid);
+                right_ids.push(rid);
+            }
+        }
+
+        // Assign fresh link groups so left halves link to each other and
+        // right halves link to each other, but left and right don't cross-link.
+        if link_group.is_some() && left_ids.len() > 1 {
+            let new_left_lg = ClipId::next().0;
+            let new_right_lg = ClipId::next().0;
+            for id in &left_ids {
+                if let Some(c) = project.timeline.clip_mut(*id) {
+                    c.link_group_id = Some(new_left_lg);
+                }
+            }
+            for id in &right_ids {
+                if let Some(c) = project.timeline.clip_mut(*id) {
+                    c.link_group_id = Some(new_right_lg);
+                }
+            }
+        }
+
+        // Select the right segment of the last split (usually video track).
+        if let Some(rid) = right_ids.last().copied() {
+            project.timeline.select(rid);
+        }
+
+        // Keep the clip-track index consistent after direct mutations.
+        project.timeline.rebuild_index();
     }
 
-    /// Blade all tracks at the playhead.
-    fn blade_all_tracks(&mut self, project: &mut Project, at_frame: i64) {
-        let track_count = project.timeline.tracks.len();
-        let mut all_clips: Vec<Vec<ClipId>> = Vec::new();
-        // Collect all clip IDs first to avoid borrow conflicts
-        for i in 0..track_count {
-            let track = &project.timeline.tracks[i];
-            let clip_ids: Vec<ClipId> = track
-                .clips
-                .iter()
-                .filter(|c| c.covers(at_frame))
-                .map(|c| c.id)
-                .collect();
-            all_clips.push(clip_ids);
-        }
-        // Then split them
-        for clip_ids in all_clips {
-            for cid in clip_ids {
-                self.split_clip_at(project, cid, at_frame);
+    /// Low-level: split exactly one clip at `at_frame`.  Returns (left_id, right_id) on
+    /// success, or None if the split was skipped.
+    fn split_one_clip(&mut self, project: &mut Project, clip_id: ClipId, at_frame: i64) -> Option<(ClipId, ClipId)> {
+        eprintln!("[split_one_clip] clip={:?} at_frame={}", clip_id, at_frame);
+        {
+            let clip = project.timeline.clip(clip_id)?;
+            if !clip.covers(at_frame) {
+                eprintln!("[split_one_clip] clip doesn't cover frame, skip");
+                return None;
             }
+        }
+        let tid = project.timeline.clip_track_id(clip_id)?;
+        eprintln!("[split_one_clip] track_id={:?}", tid);
+        let track = project.timeline.track_mut(tid)?;
+        let orig = track.remove_clip(clip_id)?;
+        eprintln!("[split_one_clip] removed orig, timeline_in={} src_dur={}", orig.timeline_in, orig.source_duration);
+
+        let split_pt = at_frame - orig.timeline_in;
+        let split_src = (split_pt as f64 * orig.speed).round() as i64;
+
+        if split_pt <= 0 || split_pt >= orig.duration() {
+            eprintln!("[split_one_clip] split_pt={} out of range [1..{}), restoring", split_pt, orig.duration());
+            track.insert_clip(orig).ok();
+            return None;
+        }
+
+        let left = rook_core::clip::Clip {
+            id: ClipId::next(),
+            label: format!("{} A", orig.label),
+            asset_id: orig.asset_id,
+            timeline_in: orig.timeline_in,
+            source_in: orig.source_in,
+            source_duration: split_src,
+            transform: orig.transform.clone(),
+            blend_mode: orig.blend_mode,
+            mask: orig.mask.clone(),
+            fade: orig.fade,
+            transition: None,
+            speed: orig.speed,
+            speed_curve: orig.speed_curve.clone(),
+            reverse: orig.reverse,
+            freeze_frame: orig.freeze_frame,
+            frame_blending: orig.frame_blending,
+            spatial_conform: orig.spatial_conform,
+            gain_db: orig.gain_db,
+            volume_keyframes: orig.volume_keyframes.clone(),
+            mute_audio: orig.mute_audio,
+            filters: orig.filters.clone(),
+            keyframes: orig.keyframes.clone(),
+            link_group_id: orig.link_group_id,
+            generator: orig.generator.clone(),
+        };
+        let right = rook_core::clip::Clip {
+            id: ClipId::next(),
+            label: format!("{} B", orig.label),
+            asset_id: orig.asset_id,
+            timeline_in: at_frame,
+            source_in: orig.source_in + split_src,
+            source_duration: orig.source_duration - split_src,
+            transform: orig.transform,
+            blend_mode: orig.blend_mode,
+            mask: orig.mask,
+            fade: orig.fade,
+            transition: None,
+            speed: orig.speed,
+            speed_curve: orig.speed_curve,
+            reverse: orig.reverse,
+            freeze_frame: orig.freeze_frame,
+            frame_blending: orig.frame_blending,
+            spatial_conform: orig.spatial_conform,
+            gain_db: orig.gain_db,
+            volume_keyframes: orig.volume_keyframes.clone(),
+            mute_audio: orig.mute_audio,
+            filters: orig.filters,
+            keyframes: orig.keyframes,
+            link_group_id: orig.link_group_id,
+            generator: orig.generator,
+        };
+        let left_id = left.id;
+        let right_id = right.id;
+        let left_res = track.insert_clip(left);
+        let right_res = track.insert_clip(right);
+        eprintln!("[split_one_clip] insert left={:?} right={:?} left_id={:?} right_id={:?}", left_res, right_res, left_id, right_id);
+        Some((left_id, right_id))
+    }
+
+    /// Blade all tracks at `at_frame`.
+    fn blade_all_tracks(&mut self, project: &mut Project, at_frame: i64) {
+        // Collect all clip IDs that span at_frame, grouped so linked clips are
+        // not split twice (split_clip_at already handles linked peers).
+        let all_clips: Vec<ClipId> = project
+            .timeline
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .filter(|c| {
+                c.covers(at_frame)
+                    && at_frame > c.timeline_in
+                    && at_frame < c.timeline_in + c.duration()
+            })
+            .map(|c| c.id)
+            .collect();
+
+        let mut already_handled: std::collections::HashSet<ClipId> = std::collections::HashSet::new();
+        for cid in all_clips {
+            if already_handled.contains(&cid) {
+                continue;
+            }
+            // Mark linked clips so we don't double-split them.
+            if let Some(lg) = project.timeline.clip(cid).and_then(|c| c.link_group_id) {
+                for track in &project.timeline.tracks {
+                    for clip in &track.clips {
+                        if clip.link_group_id == Some(lg) {
+                            already_handled.insert(clip.id);
+                        }
+                    }
+                }
+            } else {
+                already_handled.insert(cid);
+            }
+            self.split_clip_at(project, cid, at_frame);
         }
     }
 

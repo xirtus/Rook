@@ -369,21 +369,356 @@
       <span class="badge" style="background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%);color:var(--amber)">Video decode works — UX now usable</span>
       <span class="badge">280 / 280 checklist items</span>
       <span class="badge">Pre-alpha quality</span>
-      <span class="badge">Last assessed 2026‑06‑08 (session 14)</span>
+      <span class="badge">Last assessed 2026‑06‑09 (session 16)</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Cmd+S Save / Cmd+O Open</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Audio playback: WORKING ✅</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Trim handles + brackets on clips</span>
       <span class="badge" style="background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%);color:var(--amber)">Timeline scrolling: partial</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">FCP-style layout: viewer always clear ✅</span>
       <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">VU meter: bottom strip, never covers viewer ✅</span>
+      <span class="badge" style="background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 30%,var(--rule) 70%);color:var(--green)">Blade: unlimited cuts, linked A/V, saved to .rook ✅</span>
+      <span class="badge" style="background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%);color:var(--amber)">Click-freeze: root cause found + fixed (S16) — awaiting user confirmation</span>
     </div>
   </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SESSION 16 — CLICK-FREEZE ROOT CAUSE + DRAG FIX       -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section>
+    <p class="section-label">Current Session — 2026‑06‑09 (Session 16)</p>
+    <h2>Click-Freeze: Root Cause Found &amp; Fixed — Preview Frozen After Clip Click</h2>
+    <p class="section-note">
+      User reported "still freezing on click — press B twice, cut, press A, click the clip and it freezes"
+      five times across sessions 15–16.  This session identified the exact cause and deployed a fix.
+      Build running as PID 19239.  User confirmation pending.
+    </p>
+
+    <h3 style="margin-top:28px">Root Cause — <code>drag_clip</code> Never Cleared After Simple Click</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>egui event model mismatch</h4>
+        <p><code>clicked()</code> in egui fires on mouse <em>release</em> without movement.
+        <code>drag_stopped()</code> only fires when the pointer <em>moved past the drag threshold</em>
+        then released.  For a simple click (no movement), <code>drag_stopped()</code> never fires.
+        The old code set <code>drag_clip = Some(DragState{...})</code> inside <code>clicked()</code>
+        — so after any clip click, <code>drag_clip</code> was permanently set with no way to clear it.</p>
+      </div>
+      <div class="card">
+        <h4>Chain to frozen preview</h4>
+        <p><code>is_drag_active()</code> returns <code>drag_clip.is_some()</code>.
+        In <code>app.rs</code>, <code>clip_drag_active = self.timeline.is_drag_active()</code>.
+        In <code>preview.show(clip_drag_active=true)</code>,
+        <code>need_decode = false</code> — preview suppresses all frame updates.
+        After a single clip click, the video preview freezes on the last cached frame
+        and never recovers.  UI remains responsive but users interpret a frozen viewer as a whole-app freeze.</p>
+      </div>
+      <div class="card">
+        <h4>Why no SLOW FRAME logs</h4>
+        <p>The timing instrumentation added earlier (session 15–16) showed <strong>zero slow frames</strong>
+        after the blade cuts.  This confirmed the freeze was not a compositing performance problem
+        (that had already been fixed) but a <em>logic</em> bug — the preview was intentionally
+        skipping updates because <code>clip_drag_active</code> was stuck at <code>true</code>.
+        The process also exited cleanly after the background decode completed — likely the user
+        force-quit a frozen-looking window.</p>
+      </div>
+      <div class="card">
+        <h4>Broken drag as collateral</h4>
+        <p>With <code>drag_clip</code> set in <code>clicked()</code>, actual drag gestures
+        (press + move in one motion) never worked: <code>dragged_by()</code> fired but
+        <code>drag_clip</code> was <code>None</code> until the user clicked first.
+        Effectively the app required "click to arm, then drag separately" — an undiscovered
+        secondary bug exposed by this investigation.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:28px">Fixes Applied (Session 16)</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Fix</th><th>File</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Remove <code>drag_clip</code> init from <code>clicked()</code></strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Both <code>else</code> branches at the bottom of the clip hit-test (speed-ramp path
+            and default path) no longer set <code>drag_clip = Some(DragState{...})</code>.
+            They now only run the selection logic (<code>select</code> / <code>toggle_select</code>
+            / link-group expand).  Drag state is never touched on a simple click.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Add <code>drag_press_pos</code> — press-position capture</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>New <code>drag_press_pos: Option&lt;egui::Pos2&gt;</code> field.
+            Set on the frame <code>ui.input(|i| i.pointer.primary_pressed())</code> is true
+            and the pointer is inside the timeline canvas rect.  Stores the initial press
+            position for lazy drag init.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Lazy drag init in <code>dragged_by()</code></strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>At the start of the drag-in-progress handler, if <code>drag_clip.is_none()</code>
+            and <code>drag_press_pos.is_some()</code>: hit-test at press position, check not in
+            trim-handle zone, select clip (with link-group support), then
+            <code>drag_clip = Some(DragState{...})</code>.
+            Press+move in one gesture now correctly moves clips — the proper NLE interaction model.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Stale <code>drag_clip</code> cleanup</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Before all event handlers: if <code>drag_clip.is_some()</code>
+            and <code>!primary_held</code> and <code>!dragged_by()</code>,
+            clear <code>drag_clip</code> and <code>drag_press_pos</code>.
+            Prevents zombie drag state from persisting into future frames.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong><code>clip_drag_active</code> requires mouse held</strong></td>
+            <td><code>app.rs</code></td>
+            <td>Changed to <code>is_drag_active() &amp;&amp; ctx.input(|i| i.pointer.primary_down())</code>.
+            Belt-and-suspenders: even if <code>drag_clip</code> is somehow set, the preview
+            will not suppress updates unless the mouse button is actually down.
+            On click release, <code>primary_down() = false</code> → preview updates normally.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong><code>drag_stopped()</code> clears <code>drag_press_pos</code></strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Added <code>self.drag_press_pos = None</code> alongside the existing
+            <code>self.drag_clip = None</code> so all drag state is fully reset on drag release.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:28px">Also Fixed This Session — Preview Performance</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Fix</th><th>File</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong><code>quality_mode</code> defaults to <code>false</code></strong></td>
+            <td><code>preview.rs</code></td>
+            <td>Was <code>true</code> (1920×1080, ~60ms/composite).
+            Now <code>false</code> (480×270, ~4ms).  Confirmed via timing: <code>composite=62ms</code> → <code>composite=4ms</code>.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Composite result cache</strong></td>
+            <td><code>preview.rs</code></td>
+            <td>Added <code>last_composite_frame: i64</code> and <code>last_composite_size: (u32, u32)</code>
+            to <code>PreviewRenderer</code>.  Skips <code>composite_frame_cpu</code> when frame + canvas size
+            unchanged and no new decode arrived.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong><code>last_shown_playhead</code> guard</strong></td>
+            <td><code>preview.rs</code></td>
+            <td>New field on <code>PreviewPanel</code>.  <code>frame_rgba()</code> only called when
+            playhead changed, new decode frames arrived, or cache is empty.
+            Eliminates the 8MB <code>last_rgba.clone()</code> that ran on <em>every egui repaint</em>
+            (mouse move, hover, etc.).</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong><code>poll_new_frames()</code> moved after decode loop</strong></td>
+            <td><code>preview.rs</code></td>
+            <td>Was called before the per-clip decode loop — missed results that arrived mid-loop.
+            Moved to after all decode calls so newly received frames are never invisible to the
+            composite cache logic.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Checkerboard only on size change</strong></td>
+            <td><code>preview.rs</code></td>
+            <td>Was regenerated every frame when no clips were present.
+            Now only regenerated when <code>(composite_w, composite_h)</code> changes.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Timing instrumentation</strong></td>
+            <td><code>app.rs</code>, <code>preview.rs</code></td>
+            <td>Added <code>[update] engine.lock() blocked Xms</code>, <code>[update] SLOW FRAME Xms</code>,
+            <code>[app] timeline.show Xms</code>, <code>[app] preview.show Xms</code>,
+            <code>[frame_rgba] TIMING composite=Xms total=Xms</code> — all with &gt;threshold guards so
+            only genuine stalls appear in the log.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:28px">Still Open</h3>
+    <div class="card-grid">
+      <div class="card" style="border-color:color-mix(in srgb,var(--red) 30%,var(--rule) 70%)">
+        <h4 style="color:var(--red)">⏳ User confirmation pending</h4>
+        <p>Build launched as PID 19239 with all fixes applied.  User needs to run the
+        exact sequence: <strong>B → click frame 17 → B → click frame 30 → A → click a clip</strong>.
+        If no freeze occurs and the preview updates after the click, the bug is confirmed fixed.
+        Log at <code>/tmp/rook_drag_fix.log</code>.</p>
+      </div>
+      <div class="card" style="border-color:color-mix(in srgb,var(--amber) 30%,var(--rule) 70%)">
+        <h4 style="color:var(--amber)">🔇 Sound doesn't work</h4>
+        <p>Separate from the freeze — mentioned in session summaries but not investigated this session.
+        Audio subsystem (cpal + ring buffer + FFmpeg PCM decode) was confirmed working in session 12–13.
+        Unknown regression.  Next session should probe: does audio play on a fresh import?  Does
+        <code>[audio_output] device: ...</code> appear in the log?</p>
+      </div>
+      <div class="card" style="border-color:color-mix(in srgb,var(--faint) 30%,var(--rule) 70%)">
+        <h4>Clip drag polish</h4>
+        <p>Lazy drag init only handles the <code>Tool::Select</code> path.  Trim handle drag,
+        slip (<kbd>Option</kbd>+drag), slide (<kbd>Cmd</kbd>+drag), and speed-ramp drag still use
+        the old <code>clicked()</code>-arm pattern.  These are initiated via <code>trim_state</code> /
+        <code>slip_state</code> etc. rather than <code>drag_clip</code>, so they don't trigger the
+        preview freeze — but they still require a click-first-then-drag gesture.
+        A future session can migrate them to the same lazy-init pattern.</p>
+      </div>
+    </div>
+
+    <p style="margin-top:14px;font:13px/1.6 var(--font-serif);color:var(--muted);font-style:italic;max-width:70ch">
+      Session 16 spent significant time ruling out false leads (composite performance, NV12 bounds checks,
+      crash reports, engine lock contention) before converging on the <code>egui clicked()</code>
+      semantics mismatch.  The fix is 6 targeted edits across two files.  As a bonus,
+      clip dragging now works in one press+move gesture for the first time.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SESSION 15 — BLADE TOOL UNLIMITED CUTS + LINKED A/V  -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section>
+    <p class="section-label">Session 15 — 2026‑06‑09</p>
+    <h2>Blade Tool — Unlimited Cuts, Linked A/V, Scrub &amp; Cut Workflow</h2>
+    <p class="section-note">
+      The blade tool cut the first clip but failed silently on subsequent clicks:
+      splitting the video clip left the linked audio clip uncut, de-syncing them visually.
+      Users interpret this as "the cut didn't work" and give up.  Session 15 fixes this
+      and establishes a clean scrub-and-cut workflow.
+    </p>
+
+    <h3 style="margin-top:28px">Root Cause</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Linked clips not split together</h4>
+        <p>Every video+audio import creates a <code>link_group_id</code> pair.
+        The old <code>split_clip_at</code> only split the <em>clicked</em> clip —
+        the linked audio clip on A1 stayed at full length.  After the first cut the
+        video track showed two segments but the audio was still one piece, so visually
+        the cut appeared to have no effect on subsequent interactions.</p>
+      </div>
+      <div class="card">
+        <h4>Stale clip-track index</h4>
+        <p>The timeline keeps a <code>HashMap&lt;ClipId, TrackId&gt;</code>
+        (<code>clip_track_index</code>) for O(1) look-ups.  Direct mutations from
+        <code>split_clip_at</code> never called <code>rebuild_index()</code>, so new
+        clip IDs were missing and every subsequent operation fell back to a full
+        linear scan.  Not a crash, but sloppy state.</p>
+      </div>
+      <div class="card">
+        <h4>S key only split one selected clip</h4>
+        <p>The <code>S</code> key (split at playhead) only split
+        <code>selected_clip_ids.first()</code> — so in the scrub-and-cut workflow only
+        one track was cut.  User had to manually select clips on both V1 and A1 to cut
+        both.</p>
+      </div>
+      <div class="card">
+        <h4>Format question — XML vs JSON</h4>
+        <p>The <code>.rook</code> file is JSON and already IS the edit decision list:
+        each clip has <code>source_in</code>, <code>source_duration</code>,
+        <code>timeline_in</code> — exactly what FCP XML / CMX EDL encode.  Every blade
+        cut produces two clip entries.  No format change needed; cuts persist via
+        Cmd+S.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:28px">Fixes Applied</h3>
+    <div class="table-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Fix</th><th>File</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Split linked clips atomically</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>New <code>split_clip_at</code> collects all clips sharing the same
+            <code>link_group_id</code> that span <code>at_frame</code>, then splits
+            each one via the internal <code>split_one_clip</code>.  Video and audio
+            are cut simultaneously on every blade click.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>Rebuild index after every split</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td><code>split_clip_at</code> calls
+            <code>project.timeline.rebuild_index()</code> at the end — new clip IDs
+            are immediately in the O(1) look-up map.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>blade_all_tracks dedup linked clips</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Shift+Cmd+B uses a <code>HashSet&lt;ClipId&gt;</code>
+            <code>already_handled</code> so linked peers aren't split twice when
+            iterating all tracks.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+          <tr>
+            <td><strong>S key = blade all at playhead</strong></td>
+            <td><code>timeline.rs</code></td>
+            <td>Changed from <em>split first selected clip</em> to
+            <code>blade_all_tracks(project, *playhead)</code> — cuts every track
+            simultaneously.  Enables the scrub-and-cut workflow: move playhead, press
+            S, repeat.</td>
+            <td><span class="done">✅</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:28px">Scrub-and-Cut Workflow</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>Click-to-cut (blade tool)</h4>
+        <p>Press <kbd>B</kbd> → activate blade tool.  Click anywhere on a clip to split
+        it at that exact frame.  The linked audio clip is cut simultaneously.  Click as
+        many times as needed — no limit.  Press <kbd>A</kbd> to return to select tool.
+        Cuts are saved automatically on Cmd+S to <code>.rook</code>.</p>
+      </div>
+      <div class="card">
+        <h4>Scrub + S key (fastest)</h4>
+        <p>Stay in select mode.  Drag the playhead to the desired cut point (scrub on
+        the ruler or use arrow keys).  Press <kbd>S</kbd> to cut ALL tracks at the
+        playhead.  Move to the next cut point, press <kbd>S</kbd> again.  No tool
+        switching needed.</p>
+      </div>
+      <div class="card">
+        <h4>Shift+Cmd+B — blade all</h4>
+        <p>Same as <kbd>S</kbd> but explicit: cuts every clip on every track at the
+        current playhead position.  Useful when you want to be deliberate about which
+        shortcut you're pressing.</p>
+      </div>
+      <div class="card">
+        <h4>.rook file = your EDL</h4>
+        <p>Every cut is stored in the <code>.rook</code> JSON file as two clip entries
+        with correct <code>source_in</code>/<code>source_duration</code>/<code>timeline_in</code>.
+        This is identical to what FCP XML and CMX EDL encode, just in a more readable
+        format.  Reload the project any time to restore all cuts.</p>
+      </div>
+    </div>
+
+    <p style="margin-top:14px;font:13px/1.6 var(--font-serif);color:var(--muted);font-style:italic;max-width:70ch">
+      Session 15 unblocks the core edit workflow.  Blade cuts now work on every click,
+      video and audio are always cut together, and the S-key scrub-and-cut pattern
+      matches how professional editors work in DaVinci and Premiere.
+    </p>
+  </section>
 
   <!-- ═══════════════════════════════════════════════════ -->
   <!-- SESSION 14 — FCP-STYLE WORKSPACE LAYOUT              -->
   <!-- ═══════════════════════════════════════════════════ -->
   <section>
-    <p class="section-label">Current Session — 2026‑06‑08 (Session 14)</p>
+    <p class="section-label">Previous Session — 2026‑06‑08 (Session 14)</p>
     <h2>FCP-Style Workspace Layout — Preview Sacred, VU Meter to Bottom Strip</h2>
     <p class="section-note">
       The preview window was repeatedly blocked by tool panels competing for space.
@@ -3781,19 +4116,21 @@ rook-cli ────────────┘    ├── rook-core (model: 
   <section>
     <p class="section-label">Roadmap</p>
     <h2>What's Next</h2>
-    <p class="section-note">Feature checklist complete. Critical bugs and quality gaps identified. Priority order (updated 2026‑06‑08):</p>
+    <p class="section-note">Feature checklist complete. Critical bugs and quality gaps identified. Priority order (updated 2026‑06‑09, session 16):</p>
     <ol style="padding-left:18px;font:14px/2 var(--font-sans);color:var(--ink)">
-      <li><strong style="color:var(--red)">🔴 FCP-style workspace rebuild</strong> — manual rect allocation, collapsible sidebars, guaranteed viewer width (Session 15)</li>
-      <li><strong style="color:var(--amber)">🟡 Fix timeline scrolling</strong> — drop manual offset tracking, use ScrollArea natively (Session 15)</li>
-      <li><strong style="color:var(--green)">✅ Cmd+S / Cmd+O keyboard shortcuts</strong> — Done (Session 14)</li>
-      <li><strong style="color:var(--green)">✅ Blade tool hardening</strong> — zero-duration guard, source frame fix (Session 14)</li>
-      <li><strong style="color:var(--green)">✅ Trim handles + bracket indicators</strong> — Done (Session 14)</li>
+      <li><strong style="color:var(--amber)">🟡 Confirm click-freeze fixed</strong> — user must test B→B→A→click with PID 19239 build (<code>/tmp/rook_drag_fix.log</code>)</li>
+      <li><strong style="color:var(--amber)">🟡 Sound doesn't work</strong> — audio regression since session 12–13; probe log output first, then investigate</li>
+      <li><strong style="color:var(--amber)">🟡 Fix timeline scrolling</strong> — drop manual offset tracking, use ScrollArea natively</li>
+      <li><strong style="color:var(--amber)">Clip drag polish</strong> — migrate trim/slip/slide to lazy-init press+move pattern (see session 16 notes)</li>
       <li><strong style="color:var(--red)">Text rasterization in title generator</strong> — 2 days</li>
       <li><strong style="color:var(--amber)">Clip thumbnails on timeline bodies</strong> — ThumbnailCache exists, needs paint wiring</li>
       <li><strong style="color:var(--amber)">Seek pre-buffer + scrub smoothness</strong> — 3 days</li>
       <li>Wire GPU compositor into preview path</li>
       <li>Video scopes (histogram, waveform monitor, vectorscope)</li>
       <li>Magnetic snapping + gap detection in timeline</li>
+      <li><strong style="color:var(--green)">✅ Cmd+S / Cmd+O keyboard shortcuts</strong> — Done (Session 14)</li>
+      <li><strong style="color:var(--green)">✅ Blade tool: unlimited cuts, linked A/V, S key</strong> — Done (Session 15)</li>
+      <li><strong style="color:var(--green)">✅ Trim handles + bracket indicators</strong> — Done (Session 14)</li>
       <li><strong style="color:var(--green)">✅ macOS App Bundle</strong> — signed .app + DMG (Session 12–13)</li>
     </ol>
   </section>
@@ -3802,7 +4139,7 @@ rook-cli ────────────┘    ├── rook-core (model: 
   <!-- FOOTER                                              -->
   <!-- ═══════════════════════════════════════════════════ -->
   <p class="footnote">
-    Last assessed: 2026‑06‑08 (session 14) &ensp;·&ensp; 280/280 checklist items &ensp;·&ensp; Pre-alpha quality &ensp;·&ensp; Cmd+S/Cmd+O working &ensp;·&ensp; Blade tool hardened &ensp;·&ensp; Trim handles visible with brackets &ensp;·&ensp; Timeline scrolling: partial &ensp;·&ensp; <strong>Workspace layout: broken — next session rebuilds with manual rect allocation</strong> &ensp;·&ensp; Audio: cpal output + FFmpeg PCM decode (WORKING) · Video: quarter-res compositing (real-time 24fps) &ensp;·&ensp; 19/30 effects no-op · No text render · No clip thumbnails &ensp;·&ensp; Rook v0.x
+    Last assessed: 2026‑06‑09 (session 16) &ensp;·&ensp; 280/280 checklist items &ensp;·&ensp; Pre-alpha quality &ensp;·&ensp; Cmd+S/Cmd+O working &ensp;·&ensp; Blade: unlimited cuts, linked A/V, S key &ensp;·&ensp; Trim handles with brackets &ensp;·&ensp; FCP three-column layout &ensp;·&ensp; Quarter-res compositing (480×270, ~4ms) + composite cache &ensp;·&ensp; <strong>Click-freeze fix deployed (PID 19239) — confirmation pending</strong> &ensp;·&ensp; Sound broken (regression) &ensp;·&ensp; 19/30 effects no-op · No text render · No clip thumbnails &ensp;·&ensp; Rook v0.x
   </p>
 
 </main>

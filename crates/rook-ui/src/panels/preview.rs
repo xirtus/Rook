@@ -613,6 +613,11 @@ pub struct PreviewPanel {
     preview_texture: Option<egui::TextureHandle>,
     /// Video decode bridge — opens media files and decodes frames.
     video_bridge: VideoPreviewBridge,
+    /// Last successfully decoded frame (rgba bytes, width, height). Used during
+    /// clip drags so we don't seek the decoder on every drag-move frame.
+    cached_frame: Option<(Vec<u8>, u32, u32)>,
+    /// Playhead position at the last frame_rgba call — skip re-render on same position.
+    last_shown_playhead: i64,
     /// Transform drag state for on-canvas Position tool.
     transform_drag: Option<TransformDragState>,
     /// Audio waveform cache for VU meter.
@@ -697,6 +702,8 @@ impl Default for PreviewPanel {
             renderer: PreviewRenderer::default(),
             preview_texture: None,
             video_bridge: VideoPreviewBridge::new(),
+            cached_frame: None,
+            last_shown_playhead: -1,
             transform_drag: None,
             waveform_cache: WaveformCache::new(),
             waveforms_loaded: false,
@@ -706,7 +713,7 @@ impl Default for PreviewPanel {
             show_grid: false,
             show_title_safe: false,
             show_overlays: false,
-            quality_mode: true,
+            quality_mode: false,
             show_rulers: false,
         }
     }
@@ -771,6 +778,7 @@ impl PreviewPanel {
         active_tool: Tool,
         playing: &mut bool,
         playhead: &mut i64,
+        clip_drag_active: bool,
     ) {
         // Collect completed background waveform extractions (every frame).
         self.waveform_cache.poll_completed();
@@ -823,17 +831,38 @@ impl PreviewPanel {
             }
         };
 
-        // Try to decode real video; fall back to checkerboard
-        let rgba_vec = {
-            let rgba_ref = self
-                .renderer
-                .frame_rgba(*playhead, engine, &mut self.video_bridge);
-            rgba_ref.to_vec()
-        }; // mutable borrow released here
+        // Only decode when the playhead moved or new video frames arrived from background threads.
+        // During a drag, always skip decode to avoid seeking.
+        let playhead_changed = *playhead != self.last_shown_playhead;
+        let new_frames = self.video_bridge.poll_new_frames();
+        // If background decodes are still in flight, request a repaint so we pick them up next frame.
+        if self.video_bridge.has_pending_decodes() {
+            ui.ctx().request_repaint();
+        }
+        let need_decode = (playhead_changed || new_frames || self.cached_frame.is_none())
+            && !clip_drag_active;
+        if need_decode {
+            let v = self.renderer.frame_rgba(*playhead, engine, &mut self.video_bridge).to_vec();
+            let (rw, rh) = self.renderer.dimensions();
+            self.cached_frame = Some((v, rw, rh));
+            self.last_shown_playhead = *playhead;
+        } else if clip_drag_active && self.cached_frame.is_none() {
+            // First frame: no cached frame yet, decode once even during drag
+            let v = self.renderer.frame_rgba(*playhead, engine, &mut self.video_bridge).to_vec();
+            let (rw, rh) = self.renderer.dimensions();
+            self.cached_frame = Some((v, rw, rh));
+            self.last_shown_playhead = *playhead;
+        }
 
         // Re-read dimensions AFTER frame_rgba — quality switching may have
         // changed the composite resolution (e.g. 1920×1080 → 480×270).
-        let (rw, rh) = self.renderer.dimensions();
+        let (rw, rh) = if let Some((_, w, h)) = &self.cached_frame {
+            (*w, *h)
+        } else {
+            self.renderer.dimensions()
+        };
+        // Single borrow from cached_frame for egui texture upload
+        let rgba_vec = self.cached_frame.as_ref().map(|(v, _, _)| v.clone()).unwrap_or_default();
 
         // Allocate space with click and drag sense
         let sense = if active_tool == Tool::Position {
@@ -2528,6 +2557,10 @@ pub struct PreviewRenderer {
     pub covering_clips: usize,
     /// Number of decoded textures in the bank.
     pub texture_count: usize,
+    /// Last frame that was composited — skip recomposite if frame unchanged + no new decode.
+    last_composite_frame: i64,
+    /// Composite resolution at last composite — invalidates cache on quality switch.
+    last_composite_size: (u32, u32),
 }
 
 impl Default for PreviewRenderer {
@@ -2543,6 +2576,8 @@ impl Default for PreviewRenderer {
             frame_count: 0,
             covering_clips: 0,
             texture_count: 0,
+            last_composite_frame: -999,
+            last_composite_size: (0, 0),
         }
     }
 }
@@ -2591,6 +2626,7 @@ impl PreviewRenderer {
 
         // Open decoders for any assets not yet in the bridge (idempotent — skips already-open assets).
         // Called every frame so newly-imported clips get a decoder without requiring restart.
+        let _t_frame_start = std::time::Instant::now();
         self.asset_errors = self.ensure_assets_open(engine, bridge);
         self.frame_count += 1;
 
@@ -2743,29 +2779,45 @@ impl PreviewRenderer {
             }
         }
 
+        // Poll for background decode results AFTER all decode calls — catches results
+        // that arrived during the decode loop above.
+        let new_frame_arrived = bridge.poll_new_frames();
+
         if has_any {
-            // Build compositor descriptor and composite all layers
-            let desc = build_frame_descriptor(project, frame, composite_w, composite_h);
-            let layer_count = desc.items.len();
-            self.texture_count = layer_count; // approximate — layers ≈ textures
-            if frame == 0 || frame % 60 == 0 {
-                eprintln!(
-                    "[frame_rgba] compositing {} layers onto {}x{} (covering={})",
-                    layer_count, composite_w, composite_h, self.covering_clips
-                );
+            // Skip recomposite if the frame and resolution haven't changed and no new decode arrived.
+            let cache_valid = frame == self.last_composite_frame
+                && (composite_w, composite_h) == self.last_composite_size
+                && !new_frame_arrived
+                && self.frame_data.len() == (composite_w as usize * composite_h as usize * 4);
+            if !cache_valid {
+                // Build compositor descriptor and composite all layers
+                let desc = build_frame_descriptor(project, frame, composite_w, composite_h);
+                let layer_count = desc.items.len();
+                self.texture_count = layer_count;
+                let _t_composite_start = std::time::Instant::now();
+                self.frame_data = super::composite_cpu::composite_frame_cpu(&desc, &self.texture_bank);
+                let composite_ms = _t_composite_start.elapsed().as_millis();
+                let total_ms = _t_frame_start.elapsed().as_millis();
+                if composite_ms > 5 || total_ms > 10 {
+                    eprintln!(
+                        "[frame_rgba] TIMING frame={} layers={} {}x{}: composite={}ms total={}ms",
+                        frame, layer_count, composite_w, composite_h, composite_ms, total_ms
+                    );
+                }
+                self.last_composite_frame = frame;
+                self.last_composite_size = (composite_w, composite_h);
             }
-            self.frame_data = super::composite_cpu::composite_frame_cpu(&desc, &self.texture_bank);
             self.last_had_decode = true;
         } else {
-            // Fallback: checkerboard at canvas resolution
+            // Fallback: checkerboard at canvas resolution — only regenerate when size changes
             self.texture_count = 0;
-            if frame == 0 || frame % 60 == 0 {
-                eprintln!(
-                    "[frame_rgba] no decoded frames — using checkerboard fallback (covering_clips={})",
-                    self.covering_clips
-                );
+            let size_changed = (composite_w, composite_h) != self.last_composite_size
+                || self.frame_data.len() != (composite_w as usize * composite_h as usize * 4);
+            if size_changed {
+                self.frame_data = checkerboard_rgba(composite_w, composite_h, frame);
+                self.last_composite_size = (composite_w, composite_h);
+                self.last_composite_frame = -999;
             }
-            self.frame_data = checkerboard_rgba(composite_w, composite_h, frame);
             self.last_had_decode = false;
         }
 

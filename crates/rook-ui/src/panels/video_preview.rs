@@ -17,7 +17,8 @@ use rook_renderer::compositor::FrameDescriptor;
 
 /// Per-asset video decode state.
 struct DecodeState {
-    decoder: Box<dyn rook_decoder_native::NativeVideoDecoder>,
+    /// None while a background seek is in flight.
+    decoder: Option<Box<dyn rook_decoder_native::NativeVideoDecoder>>,
     width: u32,
     height: u32,
     fps: f64,
@@ -27,11 +28,14 @@ struct DecodeState {
     last_rgba: Vec<u8>,
 }
 
+type SeekResult = (Box<dyn rook_decoder_native::NativeVideoDecoder>, Vec<u8>, i64);
+
 /// Manages video decode for the preview panel.
 ///
 /// Decoders are opened asynchronously on background threads.
-/// File paths are registered via `register_path()` during the preview update loop.
-/// The actual `create_decoder()` call never runs on the UI thread.
+/// Seeks are also asynchronous: when a non-sequential frame is requested the
+/// decoder is moved to a background thread which performs seek+decode, while
+/// the UI thread immediately returns the last cached frame.
 pub struct VideoPreviewBridge {
     /// Open decoders keyed by asset ID.
     states: HashMap<AssetId, DecodeState>,
@@ -43,6 +47,8 @@ pub struct VideoPreviewBridge {
     opening: HashSet<AssetId>,
     /// Channels for receiving decoder-open results from background threads.
     open_channels: HashMap<AssetId, mpsc::Receiver<Option<DecodeState>>>,
+    /// Channels for receiving async seek+decode results.
+    seek_rx: HashMap<AssetId, mpsc::Receiver<SeekResult>>,
 }
 
 impl VideoPreviewBridge {
@@ -53,7 +59,20 @@ impl VideoPreviewBridge {
             known_paths: HashMap::new(),
             opening: HashSet::new(),
             open_channels: HashMap::new(),
+            seek_rx: HashMap::new(),
         }
+    }
+
+    /// Poll for completed background decode results. Returns true if any new
+    /// frame data arrived — callers should re-composite when this is true.
+    pub fn poll_new_frames(&mut self) -> bool {
+        self.poll_open_results();
+        self.poll_seek_results()
+    }
+
+    /// True if any background decode or open operations are still in flight.
+    pub fn has_pending_decodes(&self) -> bool {
+        !self.seek_rx.is_empty() || !self.open_channels.is_empty()
     }
 
     /// Register a file path for an asset so the decoder can be opened lazily.
@@ -105,7 +124,7 @@ impl VideoPreviewBridge {
         self.states.insert(
             asset_id,
             DecodeState {
-                decoder,
+                decoder: Some(decoder),
                 width: props.width,
                 height: props.height,
                 fps: props.frame_rate,
@@ -185,6 +204,39 @@ impl VideoPreviewBridge {
             self.open_channels.remove(id);
             self.opening.remove(id);
         }
+    }
+
+    /// Poll for completed background seek+decode results.
+    /// Returns true if at least one new frame arrived (caller should re-composite).
+    fn poll_seek_results(&mut self) -> bool {
+        if self.seek_rx.is_empty() {
+            return false;
+        }
+        let mut done = Vec::new();
+        let mut got_new = false;
+        for (&asset_id, rx) in &self.seek_rx {
+            match rx.try_recv() {
+                Ok((decoder, rgba, frame_num)) => {
+                    if let Some(state) = self.states.get_mut(&asset_id) {
+                        state.decoder = Some(decoder);
+                        if !rgba.is_empty() {
+                            state.last_rgba = rgba;
+                            got_new = true;
+                        }
+                        state.last_frame = frame_num;
+                    }
+                    done.push(asset_id);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done.push(asset_id);
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        for id in &done {
+            self.seek_rx.remove(id);
+        }
+        got_new
     }
 
     /// Ensure a decoder is open for the asset.
@@ -274,7 +326,7 @@ impl VideoPreviewBridge {
         }
 
         Some(DecodeState {
-            decoder,
+            decoder: Some(decoder),
             width: props.width,
             height: props.height,
             fps: props.frame_rate,
@@ -284,32 +336,34 @@ impl VideoPreviewBridge {
         })
     }
 
-    /// Decode a frame and return RGBA bytes.
+    /// Decode a frame and return RGBA bytes. Never blocks the UI thread.
     ///
-    /// Opens the decoder asynchronously on first access — spawns a background
-    /// thread for AVFoundation init (1-5s). Returns `None` (checkerboard fallback)
-    /// until the decoder is ready. Never blocks the UI thread.
+    /// Every decode (seek or sequential) is dispatched to a background thread.
+    /// The last cached frame is returned immediately while decoding runs.
+    /// The cache is updated once the background thread finishes.
     pub fn decode_frame_rgba(
         &mut self,
         asset_id: AssetId,
         source_frame: i64,
         fps: f64,
     ) -> Option<(Vec<u8>, u32, u32)> {
-        // Check for completed background decoder opens
         self.poll_open_results();
+        self.poll_seek_results(); // ignore return here — caller polls separately
 
-        // If decoder isn't open yet, start async open and return checkerboard
         if !self.ensure_open(asset_id) {
             return None;
         }
 
         let state = self.states.get_mut(&asset_id)?;
 
-        // Cache: if same frame, return cached
+        // Cache hit: same frame, return immediately
         if state.last_frame == source_frame && !state.last_rgba.is_empty() {
-            let w = state.width;
-            let h = state.height;
-            return Some((state.last_rgba.clone(), w, h));
+            return Some((state.last_rgba.clone(), state.width, state.height));
+        }
+
+        // Background decode already in flight — return cached frame while we wait
+        if self.seek_rx.contains_key(&asset_id) || state.decoder.is_none() {
+            return Some((state.last_rgba.clone(), state.width, state.height));
         }
 
         let asset_fps = if state.fps.is_finite() && state.fps > 0.0 {
@@ -321,61 +375,48 @@ impl VideoPreviewBridge {
         let max_timestamp = (state.duration_secs - (0.5 / asset_fps)).max(0.0);
         let timestamp = timestamp.clamp(0.0, max_timestamp);
 
-        // Seek and decode
-        let result = (|| -> anyhow::Result<Vec<u8>> {
-            // On first call (last_frame == -1) with frame 0, the reader is already
-            // positioned at frame 0 from when the decoder was opened — no seek needed.
-            // For any other first-call frame, or jumps in sequential order, seek.
-            let need_seek = (state.last_frame < 0 && source_frame > 0)
-                || (state.last_frame >= 0 && source_frame != state.last_frame + 1);
-            if need_seek {
-                state.decoder.seek_to(timestamp)?;
-            }
-            let frame = state
-                .decoder
-                .decode_frame(timestamp)?
-                .ok_or_else(|| anyhow::anyhow!("no frame at timestamp"))?;
+        let need_seek = (state.last_frame < 0 && source_frame > 0)
+            || (state.last_frame >= 0 && source_frame != state.last_frame + 1);
 
-            // Convert NV12 → RGBA
-            let rgba = match frame.format {
-                rook_decoder_native::YuvPixFmt::Nv12 => nv12_to_rgba(
-                    &frame.y_plane,
-                    &frame.uv_plane,
-                    frame.width as usize,
-                    frame.height as usize,
-                ),
-                rook_decoder_native::YuvPixFmt::P010 => p010_to_rgba(
-                    &frame.y_plane,
-                    &frame.uv_plane,
-                    frame.width as usize,
-                    frame.height as usize,
-                ),
-            };
+        // Move decoder to background thread for decode (seek + decode if needed,
+        // or just decode for sequential frames). UI thread never calls decode_frame.
+        let mut decoder = state.decoder.take().unwrap();
+        let (tx, rx) = mpsc::channel();
+        self.seek_rx.insert(asset_id, rx);
 
-            Ok(rgba)
-        })();
-
-        match result {
-            Ok(rgba) => {
-                let w = state.width;
-                let h = state.height;
-                if source_frame == 0 || source_frame % 60 == 0 {
-                    eprintln!("[decode_frame_rgba] OK asset={} frame={} ts={:.4} {}x{}",
-                        asset_id.0, source_frame, timestamp, w, h);
+        std::thread::spawn(move || {
+            let result: anyhow::Result<(Vec<u8>, i64)> = (|| {
+                if need_seek {
+                    decoder.seek_to(timestamp)?;
                 }
-                state.last_frame = source_frame;
-                state.last_rgba = rgba.clone();
-                Some((rgba, w, h))
-            }
-            Err(e) => {
-                eprintln!("[decode_frame_rgba] FAIL asset={} frame={} ts={:.4} last_frame={}: {:?}",
-                    asset_id.0, source_frame, timestamp, state.last_frame, e);
-                tracing::warn!(?e, asset_id = %asset_id.0, "decode failed, using cached");
-                let w = state.width;
-                let h = state.height;
-                Some((state.last_rgba.clone(), w, h))
-            }
-        }
+                let frame = decoder
+                    .decode_frame(timestamp)?
+                    .ok_or_else(|| anyhow::anyhow!("no frame"))?;
+                let rgba = match frame.format {
+                    rook_decoder_native::YuvPixFmt::Nv12 => nv12_to_rgba(
+                        &frame.y_plane,
+                        &frame.uv_plane,
+                        frame.width as usize,
+                        frame.height as usize,
+                    ),
+                    rook_decoder_native::YuvPixFmt::P010 => p010_to_rgba(
+                        &frame.y_plane,
+                        &frame.uv_plane,
+                        frame.width as usize,
+                        frame.height as usize,
+                    ),
+                };
+                Ok((rgba, source_frame))
+            })();
+            let (rgba, frame_num) = result.unwrap_or_else(|e| {
+                eprintln!("[decode_frame_rgba] bg decode FAIL frame={} ts={:.4}: {:?}", source_frame, timestamp, e);
+                (vec![], -1)
+            });
+            let _ = tx.send((decoder, rgba, frame_num));
+        });
+
+        // Return last cached frame while background decode runs
+        Some((state.last_rgba.clone(), state.width, state.height))
     }
 
     /// Get dimensions for an asset.

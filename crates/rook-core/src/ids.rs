@@ -15,7 +15,9 @@ macro_rules! id_newtype {
 
         impl $name {
             pub fn next() -> Self {
-                Self(uuid::Uuid::now_v7().as_u64_pair().0)
+                let u = uuid::Uuid::now_v7();
+                let (hi, lo) = u.as_u64_pair();
+                Self(hi ^ lo)
             }
 
             pub fn from_u64(v: u64) -> Self {

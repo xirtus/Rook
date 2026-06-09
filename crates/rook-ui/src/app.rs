@@ -332,6 +332,7 @@ where
 
 impl eframe::App for RookApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let _t_update = std::time::Instant::now();
         // ── Process any completed file dialog ──────────────────────────────
         if let Some(rx) = &self.file_dialog_rx {
             if let Ok(result) = rx.try_recv() {
@@ -472,13 +473,22 @@ impl eframe::App for RookApp {
         }
 
         // Lock engine for this frame
+        let _t_lock = std::time::Instant::now();
         let mut engine = self.engine.lock().unwrap();
+        let lock_ms = _t_lock.elapsed().as_millis();
+        if lock_ms > 5 { eprintln!("[update] engine.lock() blocked for {}ms", lock_ms); }
 
         // Poll proxy builds and IPC
+        let _t_proxy = std::time::Instant::now();
         engine.proxy().tick();
+        let proxy_ms = _t_proxy.elapsed().as_millis();
+        if proxy_ms > 5 { eprintln!("[update] proxy.tick() took {}ms", proxy_ms); }
         drop(engine); // release lock for IPC poll
         if let Some(ref mut ipc) = self.ipc_server {
+            let _t_ipc = std::time::Instant::now();
             ipc.poll();
+            let ipc_ms = _t_ipc.elapsed().as_millis();
+            if ipc_ms > 5 { eprintln!("[update] ipc.poll() took {}ms", ipc_ms); }
         }
         let mut engine = self.engine.lock().unwrap();
 
@@ -1398,6 +1408,7 @@ impl eframe::App for RookApp {
         }
 
         // ── Bottom: Timeline — full width, declared before sidepanels ────
+        let _t_tl = std::time::Instant::now();
         egui::TopBottomPanel::bottom("timeline")
             .resizable(true)
             .default_height(240.0)
@@ -1414,6 +1425,8 @@ impl eframe::App for RookApp {
                 self.timeline
                     .show(ui, engine.project_mut(), &mut self.playhead);
             });
+        let tl_ms = _t_tl.elapsed().as_millis();
+        if tl_ms > 10 { eprintln!("[app] timeline.show took {}ms", tl_ms); }
 
         // ── Bottom: Marker list (above timeline) ──────────────────────
         if self.show_markers {
@@ -1611,6 +1624,9 @@ impl eframe::App for RookApp {
         // ── Center: Preview monitor — always unobscured ─────────────────────
         self.preview.set_playing(self.playing);
         let active_tool = self.timeline.active_tool;
+        let clip_drag_active = self.timeline.is_drag_active()
+            && ctx.input(|i| i.pointer.primary_down());
+        let _t_preview = std::time::Instant::now();
         egui::CentralPanel::default().show(ctx, |ui| {
             self.preview.show(
                 ui,
@@ -1618,8 +1634,11 @@ impl eframe::App for RookApp {
                 active_tool,
                 &mut self.playing,
                 &mut self.playhead,
+                clip_drag_active,
             );
         });
+        let preview_ms = _t_preview.elapsed().as_millis();
+        if preview_ms > 10 { eprintln!("[app] preview.show took {}ms (drag_active={})", preview_ms, clip_drag_active); }
 
         // ── Export dialog ───────────────────────────────────────────────
         if self.show_export_dialog {
@@ -2091,6 +2110,10 @@ impl eframe::App for RookApp {
         // Continuous repaint during playback
         if self.playing {
             ctx.request_repaint();
+        }
+        let update_ms = _t_update.elapsed().as_millis();
+        if update_ms > 20 {
+            eprintln!("[update] SLOW FRAME: {}ms", update_ms);
         }
     }
 }
